@@ -6,6 +6,37 @@ def create_model_instance_SL(dataset_type, model_type, worker_num, class_num=10)
     client_nets = {net_i: None for net_i in range(worker_num)}
 
     if dataset_type == 'CIFAR10':
+        server = AlexNet_U_Shape(2, -1, class_num)
+        for net_i in range(worker_num):
+            net = AlexNet_U_Shape(0, 2, class_num)
+            client_nets[net_i] = net
+        return client_nets, server
+
+    elif dataset_type == 'image100':
+        server = VGG16_U_Shape(3, -1)
+        for net_i in range(worker_num):
+            net = VGG16_U_Shape(0, 3)
+            client_nets[net_i] = net
+        return client_nets, server
+
+    elif dataset_type == 'UCIHAR':
+        server = CNN_HAR_U_Shape(1, -1)
+        for net_i in range(worker_num):
+            net = CNN_HAR_U_Shape(0, 1)
+            client_nets[net_i] = net
+        return client_nets, server
+
+    elif dataset_type == 'SPEECH':
+        server = M5_U_Shape(1, -1)
+        for net_i in range(worker_num):
+            net = M5_U_Shape(0, 1)
+            client_nets[net_i] = net
+        return client_nets, server
+
+def create_model_instance_SL_two_splits(dataset_type, model_type, worker_num, class_num=10):
+    client_nets = {net_i: None for net_i in range(worker_num)}
+
+    if dataset_type == 'CIFAR10':
         server = AlexNet_U_Shape(2, 4, class_num)
         for net_i in range(worker_num):
             net = (AlexNet_U_Shape(0, 2, class_num), AlexNet_U_Shape(4, -1, class_num))
@@ -40,7 +71,6 @@ class AlexNet_U_Shape(nn.Module):
         self.last_cut = last_cut
         self.class_num = class_num
 
-        # defining convolutional layers
         self.conv_layers = [
             nn.Sequential(
                 nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1),
@@ -67,10 +97,9 @@ class AlexNet_U_Shape(nn.Module):
             )
         ]
 
-        # defining fully connected layers separately
         self.fc_layers = [
             nn.Dropout(),
-            nn.Linear(256 * 4 * 4, 4096),  # Adjust this according to the correct input dimensions
+            nn.Linear(256 * 4 * 4, 4096),
             nn.ReLU(inplace=True),
             nn.Dropout(),
             nn.Linear(4096, 4096),
@@ -78,13 +107,8 @@ class AlexNet_U_Shape(nn.Module):
             nn.Linear(4096, class_num),
         ]
 
-        # combining all layers
         self.all_layers = self.conv_layers + self.fc_layers
-
-        # initializing model parts as an empty ModuleList
         self.model_parts = nn.ModuleList()
-
-        # calling method to initialize layers based on the cut points
         self._initialize_layers()
 
     def _initialize_layers(self):
@@ -98,7 +122,6 @@ class AlexNet_U_Shape(nn.Module):
 
     def forward(self, x):
         if self.first_cut > len(self.conv_layers):
-            # If we start from fully connected layers, reshape the input
             x = x.view(x.size(0), -1)
         
         for layer in self.model_parts:
@@ -123,7 +146,6 @@ class VGG16_U_Shape(nn.Module):
         self.first_cut = first_cut
         self.last_cut = last_cut
 
-        # defining convolutional layers
         self.conv_layers = [
             nn.Sequential(
                 nn.Conv2d(3, 64, kernel_size=3, padding=1),
@@ -181,7 +203,6 @@ class VGG16_U_Shape(nn.Module):
             )
         ]
 
-        # defining fully connected layers separately
         self.fc_layers = [
             nn.Linear(512 * 7 * 7, 4096),
             nn.ReLU(inplace=True),
@@ -192,13 +213,8 @@ class VGG16_U_Shape(nn.Module):
             nn.Linear(4096, class_num),
         ]
 
-        # combining all layers
         self.all_layers = self.conv_layers + self.fc_layers
-
-        # initializing model parts as an empty ModuleList
         self.model_parts = nn.ModuleList()
-
-        # calling method to initialize layers based on the cut points
         self._initialize_layers()
 
     def _initialize_layers(self):
@@ -212,7 +228,6 @@ class VGG16_U_Shape(nn.Module):
 
     def forward(self, x):
         if self.first_cut > len(self.conv_layers):
-            # If we start from fully connected layers, reshape the input
             x = x.view(x.size(0), -1)
         
         for layer in self.model_parts:
@@ -237,7 +252,6 @@ class CNN_HAR_U_Shape(nn.Module):
         self.first_cut = first_cut
         self.last_cut = last_cut
 
-        # defining convolutional layers
         self.conv_layers = [
             nn.Sequential(
                 nn.Conv2d(1, 12, kernel_size=3, stride=1, padding=1),
@@ -255,7 +269,6 @@ class CNN_HAR_U_Shape(nn.Module):
             )
         ]
 
-        # defining fully connected layers separately
         self.fc_layers = [
             nn.Linear(64 * 32 * 2, 1024),
             nn.ReLU(),
@@ -263,13 +276,8 @@ class CNN_HAR_U_Shape(nn.Module):
             nn.Linear(1024, 6)
         ]
 
-        # combining all layers
         self.all_layers = self.conv_layers + self.fc_layers
-
-        # initializing model parts as an empty ModuleList
         self.model_parts = nn.ModuleList()
-
-        # calling method to initialize layers based on the cut points
         self._initialize_layers()
 
     def _initialize_layers(self):
@@ -283,7 +291,6 @@ class CNN_HAR_U_Shape(nn.Module):
 
     def forward(self, x):
         if self.first_cut > len(self.conv_layers):
-            # If we start from fully connected layers, reshape the input
             x = x.view(x.size(0), -1)
         
         for layer in self.model_parts:
@@ -308,7 +315,6 @@ class M5_U_Shape(nn.Module):
         self.first_cut = first_cut
         self.last_cut = last_cut
 
-        # defining convolutional layers
         self.conv_layers = [
             nn.Sequential(
                 nn.Conv1d(n_input, n_channel, kernel_size=80, stride=16),
@@ -330,18 +336,12 @@ class M5_U_Shape(nn.Module):
             )
         ]
 
-        # defining fully connected layers separately
         self.fc_layers = [
             nn.Linear(2 * n_channel, n_output)
         ]
 
-        # combining all layers
         self.all_layers = self.conv_layers + self.fc_layers
-
-        # initializing model parts as an empty ModuleList
         self.model_parts = nn.ModuleList()
-
-        # calling method to initialize layers based on the cut points
         self._initialize_layers()
 
     def _initialize_layers(self):
@@ -355,7 +355,6 @@ class M5_U_Shape(nn.Module):
 
     def forward(self, x):
         if self.first_cut > len(self.conv_layers):
-            # If we start from fully connected layers, reshape the input
             x = x.view(x.size(0), -1)
         
         for layer in self.model_parts:

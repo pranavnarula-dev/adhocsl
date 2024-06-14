@@ -23,11 +23,11 @@ parser.add_argument('--client_lr', type=float, default=0.01)
 parser.add_argument('--server_lr', type=float, default=0.1)
 parser.add_argument('--decay_rate', type=float, default=0.993)
 parser.add_argument('--min_lr', type=float, default=0.005)
-parser.add_argument('--epoch', type=int, default=100)
+parser.add_argument('--epoch', type=int, default=10)
 parser.add_argument('--momentum', type=float, default=-1)
 parser.add_argument('--weight_decay', type=float, default=0.0)
 parser.add_argument('--data_path', type=str, default='./data')
-parser.add_argument('--device', type=str, default='cuda', help='The device to run the program') #cpu
+parser.add_argument('--device', type=str, default='cpu', help='The device to run the program') #cpu
 parser.add_argument('--expname', type=str, default='MergeSFL')
 parser.add_argument('--two_splits', action="store_true", help='do U-Shape')
 parser.add_argument('--type_noniid', type=str, default='default')
@@ -72,7 +72,8 @@ def partition_data(dataset_type, data_pattern, worker_num=10):
     labels = None
     if dataset_type == "CIFAR10" or dataset_type == "FashionMNIST":
         train_class_num = 10
-
+    elif dataset_type=='UCIHAR':
+        train_class_num = 6
     if data_pattern == 0:
         partition_sizes = np.ones((train_class_num, worker_num)) * (1.0 / worker_num)
     elif data_pattern == 1:

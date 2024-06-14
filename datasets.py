@@ -197,10 +197,12 @@ def load_datasets(dataset_type, data_path="./data/"):
         LABELS = ["WALKING","WALKING_UPSTAIRS","WALKING_DOWNSTAIRS",
             "SITTING","STANDING","LAYING"]
         
-        X_train_signals_paths = [ "/data/ymliao/data/UCIHAR/train/Inertial Signals/" + signal + "train.txt" for signal in INPUT_SIGNAL_TYPES]
-        X_test_signals_paths = [ "/data/ymliao/data/UCIHAR/test/Inertial Signals/" + signal + "test.txt" for signal in INPUT_SIGNAL_TYPES]
-        Y_train_path = '/data/ymliao/data' + "/UCIHAR/train/" + "y_train.txt"
-        Y_test_path = '/data/ymliao/data' + "/UCIHAR/test/" + "y_test.txt"
+        base_path = os.path.join(os.getcwd(), 'data', 'UCIHAR')
+
+        X_train_signals_paths = [os.path.join(base_path, "train/Inertial_Signals", signal + "train.txt") for signal in INPUT_SIGNAL_TYPES]
+        X_test_signals_paths = [os.path.join(base_path, "test/Inertial_Signals", signal + "test.txt") for signal in INPUT_SIGNAL_TYPES]
+        Y_train_path = os.path.join(base_path, "train/y_train.txt")
+        Y_test_path = os.path.join(base_path, "test/y_test.txt")
 
         def load_X(X_signals_paths):
             X_signals = []

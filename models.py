@@ -2,13 +2,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-def create_model_instance_SL(dataset_type, model_type, worker_num, class_num=10):
+def create_model_instance_SL(dataset_type, model_type, worker_num, class_num=10, m=4):
     client_nets = {net_i: None for net_i in range(worker_num)}
 
     if dataset_type == 'CIFAR10':
-        server = AlexNet_U_Shape(2, -1, class_num)
+        server = AlexNet_U_Shape(2, -1, class_num, m=m)
         for net_i in range(worker_num):
-            net = AlexNet_U_Shape(0, 2, class_num)
+            net = AlexNet_U_Shape(0, 2, class_num, m=m)
             client_nets[net_i] = net
         return client_nets, server
 
@@ -33,13 +33,13 @@ def create_model_instance_SL(dataset_type, model_type, worker_num, class_num=10)
             client_nets[net_i] = net
         return client_nets, server
 
-def create_model_instance_SL_two_splits(dataset_type, model_type, worker_num, class_num=10):
+def create_model_instance_SL_two_splits(dataset_type, model_type, worker_num, class_num=10, m=4):
     client_nets = {net_i: None for net_i in range(worker_num)}
 
     if dataset_type == 'CIFAR10':
-        server = AlexNet_U_Shape(2, 4, class_num)
+        server = AlexNet_U_Shape(2, 4, class_num, m=m)
         for net_i in range(worker_num):
-            net = (AlexNet_U_Shape(0, 2, class_num), AlexNet_U_Shape(4, -1, class_num))
+            net = (AlexNet_U_Shape(0, 2, class_num, m=m), AlexNet_U_Shape(4, -1, class_num, m=m))
             client_nets[net_i] = net
         return client_nets, server
 
@@ -65,7 +65,7 @@ def create_model_instance_SL_two_splits(dataset_type, model_type, worker_num, cl
         return client_nets, server
 
 class AlexNet_U_Shape(nn.Module):
-    def __init__(self, first_cut=-1, last_cut=-1, class_num=10):
+    def __init__(self, first_cut=-1, last_cut=-1, class_num=10, m=4):
         super(AlexNet_U_Shape, self).__init__()
         self.first_cut = first_cut
         self.last_cut = last_cut
@@ -99,7 +99,7 @@ class AlexNet_U_Shape(nn.Module):
 
         self.fc_layers = [
             nn.Dropout(),
-            nn.Linear(256 * 4 * 4, 4096),
+            nn.Linear(256 * m * m, 4096),
             nn.ReLU(inplace=True),
             nn.Dropout(),
             nn.Linear(4096, 4096),

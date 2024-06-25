@@ -30,7 +30,7 @@ parser.add_argument('--data_path', type=str, default='./data')
 parser.add_argument('--device', type=str, default='cpu', help='The device to run the program') #cpu
 parser.add_argument('--expname', type=str, default='MergeSFL')
 parser.add_argument('--two_splits', action="store_true", help='do U-Shape')
-parser.add_argument('--type_noniid', type=str, default='default')
+parser.add_argument('--type_noniid', type=str, default='default') # label_skew
 parser.add_argument('--level', type=str, default='noniid-#label1')
 
 
@@ -306,7 +306,8 @@ def main():
                     # server sends grad_a to individual workers
                     my_outas[worker_idx].backward(grad_a)
                     client_optimizers_first[worker_idx].step()
-                index_data = (index_data+1) %  len(client_train_loader[0])
+                if args.type_noniid == 'label_skew':
+                    index_data = (index_data+1) %  len(client_train_loader[0])
             else:
                 clients_smash_data = []
                 clients_send_data = []
@@ -356,7 +357,8 @@ def main():
                     clients_optimizers[worker_idx].zero_grad()
                     clients_smash_data[worker_idx].backward(clients_grad.to(device))
                     clients_optimizers[worker_idx].step()
-                index_data = (index_data+1) %  len(client_train_loader[0])
+                if args.type_noniid == 'label_skew':
+                    index_data = (index_data+1) %  len(client_train_loader[0])
         # AGGREGATION
         with torch.no_grad():
             for worker_idx in range(worker_num):

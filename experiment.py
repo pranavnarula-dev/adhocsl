@@ -249,7 +249,7 @@ def main():
                     if args.type_noniid != 'label_skew':
                         inputs, targets = next(client_train_loader[worker_idx])
                     else:
-                        inputs, targets = client_train_loader[worker_idx][index_data]
+                        inputs, targets = next(iter(client_train_loader[worker_idx]))
 
                     inputs, targets = inputs.to(device), targets.to(device) 
                     clients_part1_send_targets.append(targets)

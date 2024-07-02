@@ -7,7 +7,6 @@ import copy
 import torch.nn.functional as F
 import datasets, models
 import torch.optim as optim
-import logging
 from training_utils import *
 from torch.utils.tensorboard import SummaryWriter
 
@@ -33,9 +32,6 @@ parser.add_argument('--two_splits', action="store_true", help='do U-Shape')
 parser.add_argument('--type_noniid', type=str, default='default') # label_skew
 parser.add_argument('--level', type=str, default='noniid-#label1')
 
-
-args = parser.parse_args()
-device = torch.device(args.device)
 
 def non_iid_partition(ratio, train_class_num, worker_num):
     partition_sizes = np.ones((train_class_num, worker_num)) * ((1 - ratio) / (worker_num-1))
@@ -127,6 +123,9 @@ def partition_data_non_iid_strict(dataset_type, data_pattern, worker_num=10):
     return train_dataset, test_dataset, train_data_partition, labels
 
 def main():
+    print('OKKK')
+    args = parser.parse_args()
+    device = torch.device(args.device)
     torch.manual_seed(42)
     worker_num = args.worker_num
     print(args.__dict__)

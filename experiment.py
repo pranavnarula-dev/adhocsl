@@ -125,7 +125,7 @@ def partition_data_non_iid_strict(dataset_type, data_pattern, worker_num=10):
 def main():
     print('OKKK')
     args = parser.parse_args()
-    #device = torch.device(args.device)
+    device = torch.device(args.device)
     torch.manual_seed(42)
     worker_num = args.worker_num
     print(args.__dict__)

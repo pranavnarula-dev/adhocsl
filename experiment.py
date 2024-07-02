@@ -186,6 +186,7 @@ def main():
     client_train_loader = []
     for worker_idx in range(worker_num):
         if args.type_noniid != 'label_skew' and labels:
+            print(f'for worker {worker_idx}')
             client_train_loader.append(datasets.create_dataloaders(train_dataset, batch_size=int(bsz_list[worker_idx]), selected_idxs=train_data_partition.use(worker_idx), pin_memory=False, drop_last=True, collate_fn=lambda x: datasets.collate_fn(x, labels)))
         elif args.type_noniid == 'label_skew':
             dataidxs_ = net_dataidx_map[worker_idx]

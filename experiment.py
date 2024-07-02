@@ -124,7 +124,7 @@ def partition_data_non_iid_strict(dataset_type, data_pattern, worker_num=10):
 
 def main():
     print('OKKK')
-    #args = parser.parse_args()
+    args = parser.parse_args()
     #device = torch.device(args.device)
     torch.manual_seed(42)
     worker_num = args.worker_num
@@ -133,6 +133,7 @@ def main():
     if args.two_splits:
         m = 4
         if args.type_noniid == 'label_skew':
+            print('OKKK2')
             m = 8
         
         client_global_model, server_global_model = models.create_model_instance_SL_two_splits(args.dataset_type, args.model_type, 1, m=m)
@@ -165,8 +166,10 @@ def main():
     if args.type_noniid == 'default':
         train_dataset, test_dataset, train_data_partition, labels = partition_data(args.dataset_type, args.data_pattern, worker_num)
     elif args.type_noniid == 'label_skew':
+        print('OKKK3')
         X_train, y_train, X_test, y_test, net_dataidx_map, traindata_cls_counts = datasets.partition_data_label_skew(
         args.dataset_type, './data', args.level, worker_num)
+        print('OKKK4')
         labels = False
     else:
         train_dataset, test_dataset, train_data_partition, labels = partition_data_non_iid_strict(args.dataset_type, args.data_pattern, worker_num)
@@ -177,8 +180,10 @@ def main():
         else:
             test_loader = datasets.create_dataloaders(test_dataset, batch_size=64, shuffle=False)
     else:
+        print('OKKK5')
         train_dl_local_, test_dl_local, _, _ = datasets.get_dataloader_skew(args.dataset_type, './data', args.batch_size, 32, model=args.model_type)
         test_loader = test_dl_local
+        print('OKKK6')
 
     # Clients data loaders
     bsz_list = np.ones(worker_num, dtype=int) * args.batch_size

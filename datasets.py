@@ -1020,7 +1020,7 @@ def record_net_data_stats(y_train, net_dataidx_map):
         # If it doesn't exist, create it
         os.makedirs(directory)
         
-    figure.savefig(f'{directory}/heatmap.png', dpi=400)
+    #figure.savefig(f'{directory}/heatmap.png', dpi=400)
     
     #logger.info('Data statistics: %s' % str(net_cls_counts))
     #logger.info('Saved Data bins Heatmap')

@@ -20,9 +20,9 @@ def create_model_instance_SL(dataset_type, model_type, worker_num, class_num=10,
         return client_nets, server
 
     elif dataset_type == 'UCIHAR':
-        server = CNN_HAR_U_Shape(1, -1)
+        server = CNN_HAR_U_Shape(2, -1)
         for net_i in range(worker_num):
-            net = CNN_HAR_U_Shape(0, 1)
+            net = CNN_HAR_U_Shape(0, 2)
             client_nets[net_i] = net
         return client_nets, server
 
@@ -51,9 +51,9 @@ def create_model_instance_SL_two_splits(dataset_type, model_type, worker_num, cl
         return client_nets, server
 
     elif dataset_type == 'UCIHAR':
-        server = CNN_HAR_U_Shape(1, 2)
+        server = CNN_HAR_U_Shape(1, 6)
         for net_i in range(worker_num):
-            net = (CNN_HAR_U_Shape(0, 1), CNN_HAR_U_Shape(2, -1))
+            net = (CNN_HAR_U_Shape(0, 1), CNN_HAR_U_Shape(6, -1))
             client_nets[net_i] = net
         return client_nets, server
 

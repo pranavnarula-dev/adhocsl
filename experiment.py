@@ -109,6 +109,8 @@ def partition_data_non_iid_strict(dataset_type, data_pattern, worker_num=10):
     labels = None
     if dataset_type == "CIFAR10" or dataset_type == "FashionMNIST":
         train_class_num = 10
+    elif dataset_type=='UCIHAR':
+        train_class_num = 6
 
     
     if data_pattern == 10:

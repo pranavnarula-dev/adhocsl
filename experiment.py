@@ -123,7 +123,6 @@ def partition_data_non_iid_strict(dataset_type, data_pattern, worker_num=10):
     return train_dataset, test_dataset, train_data_partition, labels
 
 def main():
-    print('OKKK')
     args = parser.parse_args()
     device = torch.device(args.device)
     torch.manual_seed(42)
@@ -133,7 +132,6 @@ def main():
     if args.two_splits:
         m = 4
         if args.type_noniid == 'label_skew':
-            print('OKKK2')
             m = 8
         
         client_global_model, server_global_model = models.create_model_instance_SL_two_splits(args.dataset_type, args.model_type, 1, m=m)
@@ -166,10 +164,8 @@ def main():
     if args.type_noniid == 'default':
         train_dataset, test_dataset, train_data_partition, labels = partition_data(args.dataset_type, args.data_pattern, worker_num)
     elif args.type_noniid == 'label_skew':
-        print('OKKK3')
         X_train, y_train, X_test, y_test, net_dataidx_map, traindata_cls_counts = datasets.partition_data_label_skew(
         args.dataset_type, './data', args.level, worker_num)
-        print('OKKK4')
         labels = False
     else:
         train_dataset, test_dataset, train_data_partition, labels = partition_data_non_iid_strict(args.dataset_type, args.data_pattern, worker_num)
@@ -180,24 +176,20 @@ def main():
         else:
             test_loader = datasets.create_dataloaders(test_dataset, batch_size=64, shuffle=False)
     else:
-        print('OKKK5')
         train_dl_local_, test_dl_local, _, _ = datasets.get_dataloader_skew(args.dataset_type, './data', args.batch_size, 32, model=args.model_type)
         test_loader = test_dl_local
-        print('OKKK6')
 
     # Clients data loaders
     bsz_list = np.ones(worker_num, dtype=int) * args.batch_size
     client_train_loader = []
     for worker_idx in range(worker_num):
         if args.type_noniid != 'label_skew' and labels:
-            print(f'for worker {worker_idx}')
             client_train_loader.append(datasets.create_dataloaders(train_dataset, batch_size=int(bsz_list[worker_idx]), selected_idxs=train_data_partition.use(worker_idx), pin_memory=False, drop_last=True, collate_fn=lambda x: datasets.collate_fn(x, labels)))
         elif args.type_noniid == 'label_skew':
             dataidxs_ = net_dataidx_map[worker_idx]
             train_dl_local_, test_dl_local, _, _ = datasets.get_dataloader_skew(args.dataset_type, './data', args.batch_size, 32, dataidxs_, 0, model=args.model_type)
             client_train_loader.append(train_dl_local_)
         else:
-            print(f'for worker {worker_idx}')
             client_train_loader.append(datasets.create_dataloaders(train_dataset, batch_size=int(bsz_list[worker_idx]), selected_idxs=train_data_partition.use(worker_idx), pin_memory=False, drop_last=True))
 
     epoch_client_lr = args.client_lr

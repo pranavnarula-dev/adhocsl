@@ -247,7 +247,8 @@ def main():
                         inputs, targets = next(client_train_loader[worker_idx])
                     else:
                         inputs, targets = next(iter(client_train_loader[worker_idx]))
-
+                    print(f' client {worker_idx}')
+                    print(targets)
                     inputs, targets = inputs.to(device), targets.to(device) 
                     clients_part1_send_targets.append(targets)
                     nets[worker_idx][0].to(device)

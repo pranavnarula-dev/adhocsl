@@ -6,9 +6,9 @@ def create_model_instance_SL(dataset_type, model_type, worker_num, class_num=10,
     client_nets = {net_i: None for net_i in range(worker_num)}
 
     if dataset_type == 'CIFAR10':
-        server = AlexNet_U_Shape(2, -1, class_num, m=m)
+        server = AlexNet_U_Shape(3, -1, class_num, m=m)
         for net_i in range(worker_num):
-            net = AlexNet_U_Shape(0, 2, class_num, m=m)
+            net = AlexNet_U_Shape(0, 3, class_num, m=m)
             client_nets[net_i] = net
         return client_nets, server
 
@@ -37,9 +37,9 @@ def create_model_instance_SL_two_splits(dataset_type, model_type, worker_num, cl
     client_nets = {net_i: None for net_i in range(worker_num)}
 
     if dataset_type == 'CIFAR10':
-        server = AlexNet_U_Shape(2, 4, class_num, m=m)
+        server = AlexNet_U_Shape(1, 8, class_num, m=m)
         for net_i in range(worker_num):
-            net = (AlexNet_U_Shape(0, 2, class_num, m=m), AlexNet_U_Shape(4, -1, class_num, m=m))
+            net = (AlexNet_U_Shape(0, 1, class_num, m=m), AlexNet_U_Shape(8, -1, class_num, m=m))
             client_nets[net_i] = net
         return client_nets, server
 

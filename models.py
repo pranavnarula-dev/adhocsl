@@ -2,13 +2,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-def create_model_instance_SL(dataset_type, model_type, worker_num, class_num=10, m=4):
+def create_model_instance_SL(dataset_type, model_type, worker_num, class_num=10):
     client_nets = {net_i: None for net_i in range(worker_num)}
 
     if dataset_type == 'CIFAR10':
-        server = AlexNet_U_Shape(3, -1, class_num, m=m)
+        server = AlexNet_U_Shape(3, -1, class_num)
         for net_i in range(worker_num):
-            net = AlexNet_U_Shape(0, 3, class_num, m=m)
+            net = AlexNet_U_Shape(0, 3, class_num)
             client_nets[net_i] = net
         return client_nets, server
 
@@ -33,39 +33,55 @@ def create_model_instance_SL(dataset_type, model_type, worker_num, class_num=10,
             client_nets[net_i] = net
         return client_nets, server
 
-def create_model_instance_SL_two_splits(dataset_type, model_type, worker_num, class_num=10, m=4):
+def create_model_instance_SL_two_splits(dataset_type, model_type, worker_num, class_num=10, num_servers=1):
     client_nets = {net_i: None for net_i in range(worker_num)}
-
+    
     if dataset_type == 'CIFAR10':
-        server = AlexNet_U_Shape(1, 8, class_num, m=m)
+        intermediate_part = AlexNet_U_Shape(1, 8, class_num)
         for net_i in range(worker_num):
-            net = (AlexNet_U_Shape(0, 1, class_num, m=m), AlexNet_U_Shape(8, -1, class_num, m=m))
+            net = (AlexNet_U_Shape(0, 1, class_num), AlexNet_U_Shape(8, -1, class_num))
             client_nets[net_i] = net
-        return client_nets, server
+        if num_servers == 1:
+            return client_nets, intermediate_part
+        else:
+            server_nets = [intermediate_part for _ in range(num_servers)]
+            return client_nets, server_nets
 
     elif dataset_type == 'image100':
-        server = VGG16_U_Shape(3, 6)
+        intermediate_part = VGG16_U_Shape(3, 6)
         for net_i in range(worker_num):
             net = (VGG16_U_Shape(0, 3), VGG16_U_Shape(6, -1))
             client_nets[net_i] = net
-        return client_nets, server
+        if num_servers == 1:
+            return client_nets, intermediate_part
+        else:
+            server_nets = [intermediate_part for _ in range(num_servers)]
+            return client_nets, server_nets
 
     elif dataset_type == 'UCIHAR':
-        server = CNN_HAR_U_Shape(1, 6)
+        intermediate_part = CNN_HAR_U_Shape(1, 6)
         for net_i in range(worker_num):
             net = (CNN_HAR_U_Shape(0, 1), CNN_HAR_U_Shape(6, -1))
             client_nets[net_i] = net
-        return client_nets, server
+        if num_servers == 1:
+            return client_nets, intermediate_part
+        else:
+            server_nets = [intermediate_part for _ in range(num_servers)]
+            return client_nets, server_nets
 
     elif dataset_type == 'SPEECH':
-        server = M5_U_Shape(1, 2)
+        intermediate_part = M5_U_Shape(1, 2)
         for net_i in range(worker_num):
             net = (M5_U_Shape(0, 1), M5_U_Shape(2, -1))
             client_nets[net_i] = net
-        return client_nets, server
+        if num_servers == 1:
+            return client_nets, intermediate_part
+        else:
+            server_nets = [intermediate_part for _ in range(num_servers)]
+            return client_nets, server_nets
 
 class AlexNet_U_Shape(nn.Module):
-    def __init__(self, first_cut=-1, last_cut=-1, class_num=10, m=4):
+    def __init__(self, first_cut=-1, last_cut=-1, class_num=10):
         super(AlexNet_U_Shape, self).__init__()
         self.first_cut = first_cut
         self.last_cut = last_cut
@@ -99,7 +115,7 @@ class AlexNet_U_Shape(nn.Module):
 
         self.fc_layers = [
             nn.Dropout(),
-            nn.Linear(256 * m * m, 4096),
+            nn.Linear(256 * 4 * 4, 4096),
             nn.ReLU(inplace=True),
             nn.Dropout(),
             nn.Linear(4096, 4096),

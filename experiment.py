@@ -202,9 +202,9 @@ def main():
             client_optimizers_last = []
             if args.num_servers == 2:
                 if args.momentum < 0:
-                    intermediate_optimizers = [optim.SGD(server_global_model.parameters(), lr=epoch_server_lr, weight_decay=args.weight_decay) for server in intermediate_server_models] 
+                    intermediate_optimizers = [optim.SGD(intermediate_server_models[i].parameters(), lr=epoch_server_lr, weight_decay=args.weight_decay) for i in range(args.num_servers)] 
                 else:
-                    intermediate_optimizers = [optim.SGD(server_global_model.parameters(), lr=epoch_server_lr, momentum=args.momentum, nesterov=True, weight_decay=args.weight_decay) for server in intermediate_server_models] 
+                    intermediate_optimizers = [optim.SGD(intermediate_server_models[i].parameters(), lr=epoch_server_lr, momentum=args.momentum, nesterov=True, weight_decay=args.weight_decay) for i in range(args.num_servers)] 
 
         else:
             clients_optimizers = []

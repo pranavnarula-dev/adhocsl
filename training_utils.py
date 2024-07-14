@@ -12,7 +12,7 @@ def test(model_fe, model_p, data_loader, device=torch.device("cpu"), two_split=F
     else: 
         model_fe.eval()
 
-    #data_loader = data_loader.loader
+    data_loader = data_loader.loader
     test_loss = 0.0
     test_accuracy = 0.0
     correct = 0

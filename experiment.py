@@ -300,6 +300,8 @@ def main():
                 if args.num_servers == 2:
                     sum_bsz = sum([bsz_list[i] for i in range(worker_num)])
                     global_optim.zero_grad()
+                    intermediate_optimizers[0].zero_grad()
+                    intermediate_optimizers[1].zero_grad()
                     for optimizer in intermediate_optimizers:
                         optimizer.zero_grad()
 
@@ -354,6 +356,9 @@ def main():
                         grad_bs.append(grad_b)
 
                     # Backward pass through intermediate servers
+                    global_optim.zero_grad()
+                    intermediate_optimizers[0].zero_grad()
+                    intermediate_optimizers[1].zero_grad()
                     grad_b_all = torch.cat(grad_bs) 
                     grad_b_all.to(device)
                     # Split gradients for intermediate servers
@@ -428,69 +433,85 @@ def main():
         
         # AGGREGATION
         with torch.no_grad():
-            if args.two_splits:
-                for worker_idx in range(worker_num):
+            # Aggregate client models
+            for worker_idx in range(worker_num):
+                if args.two_splits:
                     nets[worker_idx][0].to('cpu')
                     nets[worker_idx][1].to('cpu')
                     net_para_first = nets[worker_idx][0].cpu().state_dict()
                     net_para_last = nets[worker_idx][1].cpu().state_dict()
-
-                    if worker_idx == 0:
-                        for key in net_para_first:
-                            global_model_par_first[key] = net_para_first[key]/worker_num
-                        for key in net_para_last:
-                            global_model_par_last[key] = net_para_last[key]/worker_num
-                    else:
-                        for key in net_para_first:
-                            global_model_par_first[key] += net_para_first[key]/worker_num
-                        for key in net_para_last:
-                            global_model_par_last[key] += net_para_last[key]/worker_num
-                    
-                client_global_model_first.load_state_dict(global_model_par_first)
-                client_global_model_last.load_state_dict(global_model_par_last)
-                
-                if args.num_servers == 2:
-                    # Aggregate intermediate server models into the global server model
-                    global_server_state = server_global_model.state_dict()
-                    for key in global_server_state:
-                        global_server_state[key] = sum(model.state_dict()[key] for model in intermediate_server_models) / len(intermediate_server_models)
-                    server_global_model.load_state_dict(global_server_state)
-
-            else:
-                for worker_idx in range(worker_num):
+                else:
                     nets[worker_idx].to('cpu')
                     net_para = nets[worker_idx].cpu().state_dict()
-
-                    if worker_idx == 0:
+                
+                if worker_idx == 0:
+                    if args.two_splits:
+                        for key in net_para_first:
+                            global_model_par_first[key] = net_para_first[key] / worker_num
+                        for key in net_para_last:
+                            global_model_par_last[key] = net_para_last[key] / worker_num
+                    else: 
                         for key in net_para:
-                            global_model_par[key] = net_para[key]/worker_num
+                            global_model_par[key] = net_para[key] / worker_num
+                else:
+                    if args.two_splits:
+                        for key in net_para_first:
+                            global_model_par_first[key] += net_para_first[key] / worker_num
+                        for key in net_para_last:
+                            global_model_par_last[key] += net_para_last[key] / worker_num
                     else:
                         for key in net_para:
-                            global_model_par[key] += net_para[key]/worker_num
+                            global_model_par[key] += net_para[key] / worker_num
+            
+            # Aggregate and synchronize intermediate server models if num_servers == 2
+            if args.num_servers == 2:
+                for server_idx in range(2):
+                    intermediate_server_models[server_idx].to('cpu')
                 
+                server_model_0 = intermediate_server_models[0].cpu().state_dict()
+                server_model_1 = intermediate_server_models[1].cpu().state_dict()
+                
+                # Average the parameters of the two intermediate models
+                for key in server_model_0:
+                    server_model_0[key] = (server_model_0[key] + server_model_1[key]) / 2
+                
+                # Update both intermediate server models with the averaged parameters
+                for server_idx in range(2):
+                    intermediate_server_models[server_idx].load_state_dict(server_model_0)
+                
+                # Update the server_global_model with the synchronized parameters
+                server_global_model.load_state_dict(server_model_0)
+            
+            # Load aggregated parameters into global models
+            if args.two_splits:
+                client_global_model_first.load_state_dict(global_model_par_first)
+                client_global_model_last.load_state_dict(global_model_par_last)
+            else:
                 client_global_model.load_state_dict(global_model_par)
 
+            # Distribute the aggregated model back to all clients
+            if args.two_splits:
+                global_model_par_first = client_global_model_first.state_dict()
+                global_model_par_last = client_global_model_last.state_dict()
+                for net_id, net in nets.items():
+                    net[0].load_state_dict(global_model_par_first)
+                    net[1].load_state_dict(global_model_par_last)
+            else:
+                global_model_par = client_global_model.state_dict()
+                for net_id, net in nets.items():
+                    net.load_state_dict(global_model_par)
+
+        # Move server model to CPU for testing
         server_global_model.to('cpu')
-        
+
+        # Perform testing
         if args.two_splits:
             test_loss, acc = test((client_global_model_first, client_global_model_last), server_global_model, test_loader, two_split=args.two_splits)
         else:
             test_loss, acc = test(client_global_model, server_global_model, test_loader, two_split=args.two_splits)
-        print("Epoch: {}, accuracy: {}, test_loss: {}".format(epoch_idx, acc, test_loss))
 
-        if args.two_splits:
-            global_model_par_first = client_global_model_first.state_dict()
-            global_model_par_last = client_global_model_last.state_dict()
-            for net_id, net in nets.items():
-                net[0].load_state_dict(global_model_par_first)
-                net[1].load_state_dict(global_model_par_last)
-            if args.num_servers == 2:
-                for model in intermediate_server_models:
-                    model.load_state_dict(server_global_model.state_dict())
-        else:
-            global_model_par = client_global_model.state_dict()
-            for net_id, net in nets.items():
-                net.load_state_dict(global_model_par)
+        # Print epoch results
+        print("Epoch: {}, accuracy: {}, test_loss: {}".format(epoch_idx, acc, test_loss))
 
 if __name__ == '__main__':
     main()

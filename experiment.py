@@ -32,7 +32,7 @@ parser.add_argument('--expname', type=str, default='MergeSFL')
 parser.add_argument('--two_splits', action="store_true", help='do U-Shape')
 parser.add_argument('--type_noniid', type=str, default='default')
 parser.add_argument('--level', type=int, default=10)
-parser.add_argument('--num_servers', type=int, default=1, choices=[1, 2], help='Number of intermediate servers')
+parser.add_argument('--num_servers', type=int, default=1, choices=[1, 2, 3, 4], help='Number of intermediate servers')
 
 args = parser.parse_args()
 device = torch.device(args.device)
@@ -137,8 +137,8 @@ def main():
         client_global_model, server_global_model = models.create_model_instance_SL_two_splits(args.dataset_type, args.model_type, worker_num=1, num_servers=1)
         nets, _ = models.create_model_instance_SL_two_splits(args.dataset_type, args.model_type, worker_num)
         
-        if args.num_servers == 2:
-            _, intermediate_server_models = models.create_model_instance_SL_two_splits(args.dataset_type, args.model_type, 1, num_servers=2)
+        if args.num_servers > 1:
+            _, intermediate_server_models = models.create_model_instance_SL_two_splits(args.dataset_type, args.model_type, 1, num_servers=args.num_servers)
 
         client_global_model_first = client_global_model[0][0]
         client_global_model_last = client_global_model[0][1]
@@ -200,7 +200,7 @@ def main():
         if args.two_splits:
             client_optimizers_first = []
             client_optimizers_last = []
-            if args.num_servers == 2:
+            if args.num_servers > 1:
                 if args.momentum < 0:
                     intermediate_optimizers = [optim.SGD(intermediate_server_models[i].parameters(), lr=epoch_server_lr, weight_decay=args.weight_decay) for i in range(args.num_servers)] 
                 else:
@@ -223,12 +223,12 @@ def main():
                     clients_optimizers.append(optim.SGD(nets[worker_idx].parameters(), lr=epoch_client_lr, momentum=args.momentum, nesterov=True, weight_decay=args.weight_decay))
 
         server_global_model.train()
-        if args.two_splits and args.num_servers == 2:
+        if args.two_splits and args.num_servers > 1:
             for server in intermediate_server_models:
                 server.train()
         local_steps = 42
         server_global_model.to(device)
-        if args.two_splits and args.num_servers == 2:
+        if args.two_splits and args.num_servers > 1:
             for server in intermediate_server_models:
                 server.to(device)
 
@@ -297,7 +297,7 @@ def main():
                         # server sends grad_a to individual workers
                         my_outas[worker_idx].backward(grad_a)
                         client_optimizers_first[worker_idx].step()
-                if args.num_servers == 2:
+                elif args.num_servers == 2:
                     sum_bsz = sum([bsz_list[i] for i in range(worker_num)])
                     global_optim.zero_grad()
                     intermediate_optimizers[0].zero_grad()
@@ -384,7 +384,285 @@ def main():
                         grad_a = outa_a.grad.clone().detach()
                         my_outas[worker_idx].backward(grad_a)
                         client_optimizers_first[worker_idx].step()
+                elif args.num_servers == 4:
+                    sum_bsz = sum([bsz_list[i] for i in range(worker_num)])
+                    global_optim.zero_grad()
+                    for i in range(args.num_servers):
+                        intermediate_optimizers[i].zero_grad()
+                    for optimizer in intermediate_optimizers:
+                        optimizer.zero_grad()
 
+                    det_out_as = []
+                    my_outas = []
+                    clients_part1_send_targets = []
+
+                    for worker_idx in range(worker_num):
+                        inputs, targets = next(client_train_loader[worker_idx])
+                        inputs, targets = inputs.to(device), targets.to(device)
+                        clients_part1_send_targets.append(targets)
+
+                        nets[worker_idx][0].to(device)
+
+                        out_a = nets[worker_idx][0](inputs)
+                        my_outas.append(out_a.requires_grad_(True))
+                        det_out_a = out_a.clone().detach().requires_grad_(True)
+                        det_out_a.to(device)
+                        det_out_as.append(det_out_a) ## here
+
+                    # Split data for intermediate servers
+                    det_out_a_all = torch.cat(det_out_as)
+                    split_points = [det_out_a_all.shape[0] // 4, det_out_a_all.shape[0] // 2, 3 * det_out_a_all.shape[0] // 4]
+                    det_out_a_all_1 = det_out_a_all[:split_points[0]]
+                    det_out_a_all_2 = det_out_a_all[split_points[0]:split_points[1]]
+                    det_out_a_all_3 = det_out_a_all[split_points[1]:split_points[2]]
+                    det_out_a_all_4 = det_out_a_all[split_points[2]:]
+
+                    # Process through intermediate servers
+                    out_b_1 = intermediate_server_models[0](det_out_a_all_1)
+                    out_b_2 = intermediate_server_models[1](det_out_a_all_2)
+                    out_b_3 = intermediate_server_models[2](det_out_a_all_3)
+                    out_b_4 = intermediate_server_models[3](det_out_a_all_4)
+
+                    # Recombine outputs
+                    out_b = torch.cat([out_b_1, out_b_2, out_b_3, out_b_4], dim=0)
+                    det_out_b = out_b.clone().detach().requires_grad_(True)
+                    det_out_b.to(device)
+
+                    # Forward to helpers model part c
+                    grad_bs = []
+                    bsz_s = 0 
+                    for worker_idx in range(worker_num):
+                        det_out_b_ = det_out_b[bsz_s: bsz_s + bsz_list[worker_idx]].clone().detach().requires_grad_(True)
+                        bsz_s += bsz_list[worker_idx]
+                    
+                        out = nets[worker_idx][1](det_out_b_)
+                        out.to(device)
+
+                        client_optimizers_last[worker_idx].zero_grad()
+                        loss = F.cross_entropy(out, clients_part1_send_targets[worker_idx].long())
+                        loss.backward()
+                        client_optimizers_last[worker_idx].step()
+                        grad_b = (det_out_b_.grad.clone().detach() * args.batch_size) / (args.batch_size * worker_num)
+                        grad_b.to(device)
+                        grad_bs.append(grad_b)
+
+                    # Backward pass through intermediate servers
+                    global_optim.zero_grad()
+                    for i in range(args.num_servers):
+                        intermediate_optimizers[i].zero_grad()
+                    grad_b_all = torch.cat(grad_bs) 
+                    grad_b_all.to(device)
+                    # Split gradients for intermediate servers
+                    grad_b_1 = grad_b_all[:split_points[0]]
+                    grad_b_2 = grad_b_all[split_points[0]:split_points[1]]
+                    grad_b_3 = grad_b_all[split_points[1]:split_points[2]]
+                    grad_b_4 = grad_b_all[split_points[2]:]
+
+                    # Backward pass for each intermediate server
+                    out_b_1.backward(grad_b_1)
+                    out_b_2.backward(grad_b_2)
+                    out_b_3.backward(grad_b_3)
+                    out_b_4.backward(grad_b_4)
+
+                    # Update intermediate servers
+                    for i in range(args.num_servers):
+                        intermediate_optimizers[i].step()
+
+                    # Client backward pass (first part)
+                    bsz_s = 0 
+                    for worker_idx in range(worker_num):
+                        client_optimizers_first[worker_idx].zero_grad()
+                        outa_a = det_out_as[worker_idx] 
+                        bsz_s += bsz_list[worker_idx]
+
+                        grad_a = outa_a.grad.clone().detach()
+                        my_outas[worker_idx].backward(grad_a)
+                        client_optimizers_first[worker_idx].step()
+                
+                elif args.num_servers == 3:
+                    sum_bsz = sum([bsz_list[i] for i in range(worker_num)])
+                    global_optim.zero_grad()
+                    for i in range(args.num_servers):
+                        intermediate_optimizers[i].zero_grad()
+                    for optimizer in intermediate_optimizers:
+                        optimizer.zero_grad()
+
+                    det_out_as = []
+                    my_outas = []
+                    clients_part1_send_targets = []
+
+                    for worker_idx in range(worker_num):
+                        inputs, targets = next(client_train_loader[worker_idx])
+                        inputs, targets = inputs.to(device), targets.to(device)
+                        clients_part1_send_targets.append(targets)
+
+                        nets[worker_idx][0].to(device)
+
+                        out_a = nets[worker_idx][0](inputs)
+                        my_outas.append(out_a.requires_grad_(True))
+                        det_out_a = out_a.clone().detach().requires_grad_(True)
+                        det_out_a.to(device)
+                        det_out_as.append(det_out_a) ## here
+
+                    # Split data for intermediate servers
+                    det_out_a_all = torch.cat(det_out_as)
+                    split_points = [det_out_a_all.shape[0] // 3, det_out_a_all.shape[0] * 2// 3]
+                    det_out_a_all_1 = det_out_a_all[:split_points[0]]
+                    det_out_a_all_2 = det_out_a_all[split_points[0]:split_points[1]]
+                    det_out_a_all_3 = det_out_a_all[split_points[1]:]
+
+                    # Process through intermediate servers
+                    out_b_1 = intermediate_server_models[0](det_out_a_all_1)
+                    out_b_2 = intermediate_server_models[1](det_out_a_all_2)
+                    out_b_3 = intermediate_server_models[2](det_out_a_all_3)
+
+                    # Recombine outputs
+                    out_b = torch.cat([out_b_1, out_b_2, out_b_3], dim=0)
+                    det_out_b = out_b.clone().detach().requires_grad_(True)
+                    det_out_b.to(device)
+
+                    # Forward to helpers model part c
+                    grad_bs = []
+                    bsz_s = 0 
+                    for worker_idx in range(worker_num):
+                        det_out_b_ = det_out_b[bsz_s: bsz_s + bsz_list[worker_idx]].clone().detach().requires_grad_(True)
+                        bsz_s += bsz_list[worker_idx]
+                    
+                        out = nets[worker_idx][1](det_out_b_)
+                        out.to(device)
+
+                        client_optimizers_last[worker_idx].zero_grad()
+                        loss = F.cross_entropy(out, clients_part1_send_targets[worker_idx].long())
+                        loss.backward()
+                        client_optimizers_last[worker_idx].step()
+                        grad_b = (det_out_b_.grad.clone().detach() * args.batch_size) / (args.batch_size * worker_num)
+                        grad_b.to(device)
+                        grad_bs.append(grad_b)
+
+                    # Backward pass through intermediate servers
+                    global_optim.zero_grad()
+                    for i in range(args.num_servers):
+                        intermediate_optimizers[i].zero_grad()
+                    grad_b_all = torch.cat(grad_bs) 
+                    grad_b_all.to(device)
+                    # Split gradients for intermediate servers
+                    grad_b_1 = grad_b_all[:split_points[0]]
+                    grad_b_2 = grad_b_all[split_points[0]:split_points[1]]
+                    grad_b_3 = grad_b_all[split_points[1]:]
+
+                    # Backward pass for each intermediate server
+                    out_b_1.backward(grad_b_1)
+                    out_b_2.backward(grad_b_2)
+                    out_b_3.backward(grad_b_3)
+
+                    # Update intermediate servers
+                    for i in range(args.num_servers):
+                        intermediate_optimizers[i].step()
+
+                    # Client backward pass (first part)
+                    bsz_s = 0 
+                    for worker_idx in range(worker_num):
+                        client_optimizers_first[worker_idx].zero_grad()
+                        outa_a = det_out_as[worker_idx] 
+                        bsz_s += bsz_list[worker_idx]
+
+                        grad_a = outa_a.grad.clone().detach()
+                        my_outas[worker_idx].backward(grad_a)
+                        client_optimizers_first[worker_idx].step()
+                elif args.num_servers == 4:
+                    sum_bsz = sum([bsz_list[i] for i in range(worker_num)])
+                    global_optim.zero_grad()
+                    for i in range(args.num_servers):
+                        intermediate_optimizers[i].zero_grad()
+                    for optimizer in intermediate_optimizers:
+                        optimizer.zero_grad()
+
+                    det_out_as = []
+                    my_outas = []
+                    clients_part1_send_targets = []
+
+                    for worker_idx in range(worker_num):
+                        inputs, targets = next(client_train_loader[worker_idx])
+                        inputs, targets = inputs.to(device), targets.to(device)
+                        clients_part1_send_targets.append(targets)
+
+                        nets[worker_idx][0].to(device)
+
+                        out_a = nets[worker_idx][0](inputs)
+                        my_outas.append(out_a.requires_grad_(True))
+                        det_out_a = out_a.clone().detach().requires_grad_(True)
+                        det_out_a.to(device)
+                        det_out_as.append(det_out_a) ## here
+
+                    # Split data for intermediate servers
+                    det_out_a_all = torch.cat(det_out_as)
+                    split_points = [det_out_a_all.shape[0] // 4, det_out_a_all.shape[0] // 2, 3 * det_out_a_all.shape[0] // 4]
+                    det_out_a_all_1 = det_out_a_all[:split_points[0]]
+                    det_out_a_all_2 = det_out_a_all[split_points[0]:split_points[1]]
+                    det_out_a_all_3 = det_out_a_all[split_points[1]:split_points[2]]
+                    det_out_a_all_4 = det_out_a_all[split_points[2]:]
+
+                    # Process through intermediate servers
+                    out_b_1 = intermediate_server_models[0](det_out_a_all_1)
+                    out_b_2 = intermediate_server_models[1](det_out_a_all_2)
+                    out_b_3 = intermediate_server_models[2](det_out_a_all_3)
+                    out_b_4 = intermediate_server_models[3](det_out_a_all_4)
+
+                    # Recombine outputs
+                    out_b = torch.cat([out_b_1, out_b_2, out_b_3, out_b_4], dim=0)
+                    det_out_b = out_b.clone().detach().requires_grad_(True)
+                    det_out_b.to(device)
+
+                    # Forward to helpers model part c
+                    grad_bs = []
+                    bsz_s = 0 
+                    for worker_idx in range(worker_num):
+                        det_out_b_ = det_out_b[bsz_s: bsz_s + bsz_list[worker_idx]].clone().detach().requires_grad_(True)
+                        bsz_s += bsz_list[worker_idx]
+                    
+                        out = nets[worker_idx][1](det_out_b_)
+                        out.to(device)
+
+                        client_optimizers_last[worker_idx].zero_grad()
+                        loss = F.cross_entropy(out, clients_part1_send_targets[worker_idx].long())
+                        loss.backward()
+                        client_optimizers_last[worker_idx].step()
+                        grad_b = (det_out_b_.grad.clone().detach() * args.batch_size) / (args.batch_size * worker_num)
+                        grad_b.to(device)
+                        grad_bs.append(grad_b)
+
+                    # Backward pass through intermediate servers
+                    global_optim.zero_grad()
+                    for i in range(args.num_servers):
+                        intermediate_optimizers[i].zero_grad()
+                    grad_b_all = torch.cat(grad_bs) 
+                    grad_b_all.to(device)
+                    # Split gradients for intermediate servers
+                    grad_b_1 = grad_b_all[:split_points[0]]
+                    grad_b_2 = grad_b_all[split_points[0]:split_points[1]]
+                    grad_b_3 = grad_b_all[split_points[1]:split_points[2]]
+                    grad_b_4 = grad_b_all[split_points[2]:]
+
+                    # Backward pass for each intermediate server
+                    out_b_1.backward(grad_b_1)
+                    out_b_2.backward(grad_b_2)
+                    out_b_3.backward(grad_b_3)
+                    out_b_4.backward(grad_b_4)
+
+                    # Update intermediate servers
+                    for i in range(args.num_servers):
+                        intermediate_optimizers[i].step()
+
+                    # Client backward pass (first part)
+                    bsz_s = 0 
+                    for worker_idx in range(worker_num):
+                        client_optimizers_first[worker_idx].zero_grad()
+                        outa_a = det_out_as[worker_idx] 
+                        bsz_s += bsz_list[worker_idx]
+
+                        grad_a = outa_a.grad.clone().detach()
+                        my_outas[worker_idx].backward(grad_a)
+                        client_optimizers_first[worker_idx].step()
 
             else:
                 clients_smash_data = []
@@ -477,6 +755,46 @@ def main():
                 
                 # Update both intermediate server models with the averaged parameters
                 for server_idx in range(2):
+                    intermediate_server_models[server_idx].load_state_dict(server_model_0)
+                
+                # Update the server_global_model with the synchronized parameters
+                server_global_model.load_state_dict(server_model_0)
+            
+            # Aggregate and synchronize intermediate server models if num_servers == 3
+            elif args.num_servers == 3:
+                for server_idx in range(3):
+                    intermediate_server_models[server_idx].to('cpu')
+                
+                server_model_0 = intermediate_server_models[0].cpu().state_dict()
+                server_model_1 = intermediate_server_models[1].cpu().state_dict()
+                server_model_2 = intermediate_server_models[2].cpu().state_dict()
+                
+                # Average the parameters of the two intermediate models
+                for key in server_model_0:
+                    server_model_0[key] = (server_model_0[key] + server_model_1[key] + server_model_2[key]) / 3
+                
+                # Update both intermediate server models with the averaged parameters
+                for server_idx in range(3):
+                    intermediate_server_models[server_idx].load_state_dict(server_model_0)
+                
+                # Update the server_global_model with the synchronized parameters
+                server_global_model.load_state_dict(server_model_0)
+            # Aggregate and synchronize intermediate server models if num_servers == 4
+            elif args.num_servers == 4:
+                for server_idx in range(4):
+                    intermediate_server_models[server_idx].to('cpu')
+                
+                server_model_0 = intermediate_server_models[0].cpu().state_dict()
+                server_model_1 = intermediate_server_models[1].cpu().state_dict()
+                server_model_2 = intermediate_server_models[2].cpu().state_dict()
+                server_model_3 = intermediate_server_models[3].cpu().state_dict()
+                
+                # Average the parameters of the two intermediate models
+                for key in server_model_0:
+                    server_model_0[key] = (server_model_0[key] + server_model_1[key] + server_model_2[key] + server_model_3[key]) / 4
+                
+                # Update both intermediate server models with the averaged parameters
+                for server_idx in range(4):
                     intermediate_server_models[server_idx].load_state_dict(server_model_0)
                 
                 # Update the server_global_model with the synchronized parameters

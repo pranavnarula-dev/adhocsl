@@ -69,6 +69,7 @@ def dirichlet_partition(dataset_type: str, alpha: float, worker_num: int, nclass
 
 def partition_data(dataset_type, data_pattern, worker_num=10):
     train_dataset, test_dataset = datasets.load_datasets(dataset_type)
+    print(f"Total training dataset size: {len(train_dataset)}")
     labels = None
     if dataset_type == "CIFAR10" or dataset_type == "FashionMNIST":
         train_class_num = 10
@@ -128,6 +129,16 @@ def partition_data_non_iid_strict(dataset_type, data_pattern, worker_num=10):
     train_data_partition = datasets.LabelwisePartitioner(train_dataset, partition_sizes=partition_sizes, class_num=train_class_num, labels=labels)
     return train_dataset, test_dataset, train_data_partition, labels
 
+def print_worker_data_counts(train_data_partition, worker_num):
+    total_count = 0
+    for worker_idx in range(worker_num):
+        worker_data_count = len(train_data_partition.use(worker_idx))
+        print(f"Worker {worker_idx} has {worker_data_count} training samples")
+        total_count += worker_data_count
+    
+    print(f"Total samples across all workers: {total_count}")
+    return total_count
+
 def main():
     torch.manual_seed(42)
     worker_num = args.worker_num
@@ -169,6 +180,10 @@ def main():
         test_loader = datasets.create_dataloaders(test_dataset, batch_size=64, shuffle=False, collate_fn=lambda x: datasets.collate_fn(x, labels))
     else:
         test_loader = datasets.create_dataloaders(test_dataset, batch_size=64, shuffle=False)
+    
+    print("\nData distribution across workers:")
+    total_samples = print_worker_data_counts(train_data_partition, worker_num)
+    print(f"Verification: Total dataset size is {len(train_dataset)}, distributed samples: {total_samples}")
 
     # Clients data loaders
     bsz_list = np.ones(worker_num, dtype=int) * args.batch_size

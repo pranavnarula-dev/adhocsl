@@ -272,7 +272,7 @@ def main():
                     det_out_as = []
                     my_outas = []
                     clients_part1_send_targets = []
-                    for worker_idx in selected_clients:
+                    for i, worker_idx in enumerate(selected_clients):
                         inputs, targets = next(client_train_loader[worker_idx])
                         inputs, targets = inputs.to(device), targets.to(device) 
                         clients_part1_send_targets.append(targets)
@@ -295,7 +295,7 @@ def main():
                     #server sends det_out_b[bsz_s: bsz_s + bsz_list[worker_idx]].clone().detach() to each client
                     grad_bs = []
                     bsz_s = 0 
-                    for worker_idx in selected_clients:
+                    for i, worker_idx in enumerate(selected_clients):
                         det_out_b_ = det_out_b[bsz_s: bsz_s + bsz_list[worker_idx]].clone().detach().requires_grad_(True) # "transmission"
                         bsz_s += bsz_list[worker_idx]
                     
@@ -303,7 +303,7 @@ def main():
                         out.to(device)
 
                         client_optimizers_last[worker_idx].zero_grad()
-                        loss = F.cross_entropy(out, clients_part1_send_targets[worker_idx].long())  #* args.batch_size) / (args.batch_size*(worker_num))
+                        loss = F.cross_entropy(out, clients_part1_send_targets[i].long())  #* args.batch_size) / (args.batch_size*(worker_num))
                         loss.backward()
                         client_optimizers_last[worker_idx].step()
                         grad_b = (det_out_b_.grad.clone().detach()  * args.batch_size) / (args.batch_size*chosen_worker_num)
@@ -319,14 +319,14 @@ def main():
                     global_optim.step()
 
                     bsz_s = 0 
-                    for worker_idx in selected_clients:
+                    for i, worker_idx in enumerate(selected_clients):
                         client_optimizers_first[worker_idx].zero_grad()
-                        outa_a = det_out_as[worker_idx] 
+                        outa_a = det_out_as[i] 
                         bsz_s += bsz_list[worker_idx]
 
                         grad_a = outa_a.grad.clone().detach()  #* args.batch_size) / (args.batch_size*(worker_num))
                         # server sends grad_a to individual workers
-                        my_outas[worker_idx].backward(grad_a)
+                        my_outas[i].backward(grad_a)
                         client_optimizers_first[worker_idx].step()
                 elif args.num_servers == 2:
                     sum_bsz = sum([bsz_list[i] for i in selected_clients])
@@ -340,7 +340,7 @@ def main():
                     my_outas = []
                     clients_part1_send_targets = []
 
-                    for worker_idx in selected_clients:
+                    for i, worker_idx in enumerate(selected_clients):
                         inputs, targets = next(client_train_loader[worker_idx])
                         inputs, targets = inputs.to(device), targets.to(device)
                         clients_part1_send_targets.append(targets)
@@ -371,7 +371,7 @@ def main():
                     # Forward to helpers model part c
                     grad_bs = []
                     bsz_s = 0 
-                    for worker_idx in selected_clients:
+                    for i, worker_idx in enumerate(selected_clients):
                         det_out_b_ = det_out_b[bsz_s: bsz_s + bsz_list[worker_idx]].clone().detach().requires_grad_(True)
                         bsz_s += bsz_list[worker_idx]
                     
@@ -379,7 +379,7 @@ def main():
                         out.to(device)
 
                         client_optimizers_last[worker_idx].zero_grad()
-                        loss = F.cross_entropy(out, clients_part1_send_targets[worker_idx].long())
+                        loss = F.cross_entropy(out, clients_part1_send_targets[i].long())
                         loss.backward()
                         client_optimizers_last[worker_idx].step()
                         grad_b = (det_out_b_.grad.clone().detach() * args.batch_size) / (args.batch_size * chosen_worker_num)
@@ -407,13 +407,13 @@ def main():
 
                     # Client backward pass (first part)
                     bsz_s = 0 
-                    for worker_idx in selected_clients:
+                    for i, worker_idx in enumerate(selected_clients):
                         client_optimizers_first[worker_idx].zero_grad()
-                        outa_a = det_out_as[worker_idx] 
+                        outa_a = det_out_as[i] 
                         bsz_s += bsz_list[worker_idx]
 
                         grad_a = outa_a.grad.clone().detach()
-                        my_outas[worker_idx].backward(grad_a)
+                        my_outas[i].backward(grad_a)
                         client_optimizers_first[worker_idx].step()
                 elif args.num_servers == 4:
                     sum_bsz = sum([bsz_list[i] for i in selected_clients])
@@ -427,7 +427,7 @@ def main():
                     my_outas = []
                     clients_part1_send_targets = []
 
-                    for worker_idx in selected_clients:
+                    for i, worker_idx in enumerate(selected_clients):
                         inputs, targets = next(client_train_loader[worker_idx])
                         inputs, targets = inputs.to(device), targets.to(device)
                         clients_part1_send_targets.append(targets)
@@ -462,7 +462,7 @@ def main():
                     # Forward to helpers model part c
                     grad_bs = []
                     bsz_s = 0 
-                    for worker_idx in selected_clients:
+                    for i, worker_idx in enumerate(selected_clients):
                         det_out_b_ = det_out_b[bsz_s: bsz_s + bsz_list[worker_idx]].clone().detach().requires_grad_(True)
                         bsz_s += bsz_list[worker_idx]
                     
@@ -470,7 +470,7 @@ def main():
                         out.to(device)
 
                         client_optimizers_last[worker_idx].zero_grad()
-                        loss = F.cross_entropy(out, clients_part1_send_targets[worker_idx].long())
+                        loss = F.cross_entropy(out, clients_part1_send_targets[i].long())
                         loss.backward()
                         client_optimizers_last[worker_idx].step()
                         grad_b = (det_out_b_.grad.clone().detach() * args.batch_size) / (args.batch_size * chosen_worker_num)
@@ -501,13 +501,13 @@ def main():
 
                     # Client backward pass (first part)
                     bsz_s = 0 
-                    for worker_idx in selected_clients:
+                    for i, worker_idx in enumerate(selected_clients):
                         client_optimizers_first[worker_idx].zero_grad()
-                        outa_a = det_out_as[worker_idx] 
+                        outa_a = det_out_as[i] 
                         bsz_s += bsz_list[worker_idx]
 
                         grad_a = outa_a.grad.clone().detach()
-                        my_outas[worker_idx].backward(grad_a)
+                        my_outas[i].backward(grad_a)
                         client_optimizers_first[worker_idx].step()
                 
                 elif args.num_servers == 3:
@@ -522,7 +522,7 @@ def main():
                     my_outas = []
                     clients_part1_send_targets = []
 
-                    for worker_idx in selected_clients:
+                    for i, worker_idx in enumerate(selected_clients):
                         inputs, targets = next(client_train_loader[worker_idx])
                         inputs, targets = inputs.to(device), targets.to(device)
                         clients_part1_send_targets.append(targets)
@@ -555,7 +555,7 @@ def main():
                     # Forward to helpers model part c
                     grad_bs = []
                     bsz_s = 0 
-                    for worker_idx in selected_clients:
+                    for i, worker_idx in enumerate(selected_clients):
                         det_out_b_ = det_out_b[bsz_s: bsz_s + bsz_list[worker_idx]].clone().detach().requires_grad_(True)
                         bsz_s += bsz_list[worker_idx]
                     
@@ -563,7 +563,7 @@ def main():
                         out.to(device)
 
                         client_optimizers_last[worker_idx].zero_grad()
-                        loss = F.cross_entropy(out, clients_part1_send_targets[worker_idx].long())
+                        loss = F.cross_entropy(out, clients_part1_send_targets[i].long())
                         loss.backward()
                         client_optimizers_last[worker_idx].step()
                         grad_b = (det_out_b_.grad.clone().detach() * args.batch_size) / (args.batch_size * chosen_worker_num)
@@ -592,13 +592,13 @@ def main():
 
                     # Client backward pass (first part)
                     bsz_s = 0 
-                    for worker_idx in selected_clients:
+                    for i, worker_idx in enumerate(selected_clients):
                         client_optimizers_first[worker_idx].zero_grad()
-                        outa_a = det_out_as[worker_idx] 
+                        outa_a = det_out_as[i] 
                         bsz_s += bsz_list[worker_idx]
 
                         grad_a = outa_a.grad.clone().detach()
-                        my_outas[worker_idx].backward(grad_a)
+                        my_outas[i].backward(grad_a)
                         client_optimizers_first[worker_idx].step()
                 elif args.num_servers == 4:
                     sum_bsz = sum([bsz_list[i] for i in selected_clients])
@@ -612,7 +612,7 @@ def main():
                     my_outas = []
                     clients_part1_send_targets = []
 
-                    for worker_idx in selected_clients:
+                    for i, worker_idx in enumerate(selected_clients):
                         inputs, targets = next(client_train_loader[worker_idx])
                         inputs, targets = inputs.to(device), targets.to(device)
                         clients_part1_send_targets.append(targets)
@@ -647,7 +647,7 @@ def main():
                     # Forward to helpers model part c
                     grad_bs = []
                     bsz_s = 0 
-                    for worker_idx in selected_clients:
+                    for i, worker_idx in enumerate(selected_clients):
                         det_out_b_ = det_out_b[bsz_s: bsz_s + bsz_list[worker_idx]].clone().detach().requires_grad_(True)
                         bsz_s += bsz_list[worker_idx]
                     
@@ -655,7 +655,7 @@ def main():
                         out.to(device)
 
                         client_optimizers_last[worker_idx].zero_grad()
-                        loss = F.cross_entropy(out, clients_part1_send_targets[worker_idx].long())
+                        loss = F.cross_entropy(out, clients_part1_send_targets[i].long())
                         loss.backward()
                         client_optimizers_last[worker_idx].step()
                         grad_b = (det_out_b_.grad.clone().detach() * args.batch_size) / (args.batch_size * chosen_worker_num)
@@ -686,13 +686,13 @@ def main():
 
                     # Client backward pass (first part)
                     bsz_s = 0 
-                    for worker_idx in selected_clients:
+                    for i, worker_idx in enumerate(selected_clients):
                         client_optimizers_first[worker_idx].zero_grad()
-                        outa_a = det_out_as[worker_idx] 
+                        outa_a = det_out_as[i] 
                         bsz_s += bsz_list[worker_idx]
 
                         grad_a = outa_a.grad.clone().detach()
-                        my_outas[worker_idx].backward(grad_a)
+                        my_outas[i].backward(grad_a)
                         client_optimizers_first[worker_idx].step()
 
             else:

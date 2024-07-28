@@ -98,22 +98,21 @@ def partition_data(dataset_type, data_pattern, initial_workers=10):
     elif data_pattern == 4:
         non_iid_ratio = 0.8
         partition_sizes = non_iid_partition(non_iid_ratio, train_class_num, initial_workers)
-
-    elif data_pattern == 5:  # dir-1.0
-        print('Dirichlet partition 1.0')
-        partition_sizes = dirichlet_partition(dataset_type, 1.0, initial_workers, train_class_num)
-
-    elif data_pattern == 6:  # dir-0.5
-        print('Dirichlet partition 0.5')
-        partition_sizes = dirichlet_partition(dataset_type, 0.5, initial_workers, train_class_num)
-
-    elif data_pattern == 7:  # dir-0.1
-        print('Dirichlet partition 0.1')
-        partition_sizes = dirichlet_partition(dataset_type, 0.1, initial_workers, train_class_num)
-
-    elif data_pattern == 8:  # dir-0.05
-        print('Dirichlet partition 0.05')
-        partition_sizes = dirichlet_partition(dataset_type, 0.05, initial_workers, train_class_num)
+    elif data_pattern in [5, 6, 7, 8]:
+        alpha = {5: 1.0, 6: 0.5, 7: 0.1, 8: 0.05}[data_pattern]
+        print(f'Dirichlet partition {alpha}')
+        partition_sizes = dirichlet_partition(dataset_type, alpha, initial_workers, train_class_num)
+        
+        # Ensure each client gets at least some data
+        min_samples = max(1, len(train_dataset) // (initial_workers * 10))  # At least 1/10 of average
+        for class_idx in range(train_class_num):
+            total_samples = int(sum(partition_sizes[class_idx]) * len(train_dataset) / train_class_num)
+            for worker_idx in range(initial_workers):
+                if partition_sizes[class_idx][worker_idx] * total_samples < min_samples:
+                    partition_sizes[class_idx][worker_idx] = min_samples / total_samples
+            
+            # Normalize to ensure the sum is still 1
+            partition_sizes[class_idx] /= sum(partition_sizes[class_idx])
     print(partition_sizes)
     train_data_partition = datasets.LabelwisePartitioner(train_dataset, partition_sizes=partition_sizes, class_num=train_class_num, labels=labels)
     return train_dataset, test_dataset, train_data_partition, labels

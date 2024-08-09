@@ -11,6 +11,9 @@ import logging
 from training_utils import *
 from torch.utils.tensorboard import SummaryWriter
 import random
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
 
 
 #init parameters
@@ -21,11 +24,11 @@ parser.add_argument('--initial_workers', type=int, default=10)
 parser.add_argument('--chosen_worker_num', type=int, default=5)
 parser.add_argument('--batch_size', type=int, default=10) 
 parser.add_argument('--data_pattern', type=int, default=0)
-parser.add_argument('--client_lr', type=float, default=0.01)
+parser.add_argument('--client_lr', type=float, default=0.1)
 parser.add_argument('--server_lr', type=float, default=0.1)
 parser.add_argument('--decay_rate', type=float, default=0.993)
 parser.add_argument('--min_lr', type=float, default=0.005)
-parser.add_argument('--epoch', type=int, default=10)
+parser.add_argument('--epoch', type=int, default=100)
 parser.add_argument('--momentum', type=float, default=-1)
 parser.add_argument('--weight_decay', type=float, default=0.0)
 parser.add_argument('--data_path', type=str, default='./data')
@@ -53,6 +56,7 @@ def non_iid_partition(ratio, train_class_num, initial_workers):
         partition_sizes[i][i%initial_workers]=ratio
 
     return partition_sizes
+
 
 def non_iid_partition_strict(ratio, level, train_class_num, initial_workers):
     partition_sizes = np.zeros((train_class_num, initial_workers))
@@ -98,24 +102,25 @@ def partition_data(dataset_type, data_pattern, initial_workers=10):
     elif data_pattern == 4:
         non_iid_ratio = 0.8
         partition_sizes = non_iid_partition(non_iid_ratio, train_class_num, initial_workers)
-
-    elif data_pattern == 5:  # dir-1.0
-        print('Dirichlet partition 1.0')
-        partition_sizes = dirichlet_partition(dataset_type, 1.0, initial_workers, train_class_num)
-
-    elif data_pattern == 6:  # dir-0.5
-        print('Dirichlet partition 0.5')
-        partition_sizes = dirichlet_partition(dataset_type, 0.5, initial_workers, train_class_num)
-
-    elif data_pattern == 7:  # dir-0.1
-        print('Dirichlet partition 0.1')
-        partition_sizes = dirichlet_partition(dataset_type, 0.1, initial_workers, train_class_num)
-
-    elif data_pattern == 8:  # dir-0.05
-        print('Dirichlet partition 0.05')
-        partition_sizes = dirichlet_partition(dataset_type, 0.05, initial_workers, train_class_num)
+    elif data_pattern in [5, 6, 7, 8]:
+        alpha = {5: 1.0, 6: 0.5, 7: 0.1, 8: 0.05}[data_pattern]
+        print(f'Dirichlet partition {alpha}')
+        partition_sizes = dirichlet_partition(dataset_type, alpha, initial_workers, train_class_num)
+        
+        # Ensure each client gets at least some data
+        min_samples = max(1, len(train_dataset) // (initial_workers * 10))  # At least 1/10 of average
+        for class_idx in range(train_class_num):
+            total_samples = int(sum(partition_sizes[class_idx]) * len(train_dataset) / train_class_num)
+            for worker_idx in range(initial_workers):
+                if partition_sizes[class_idx][worker_idx] * total_samples < min_samples:
+                    partition_sizes[class_idx][worker_idx] = min_samples / total_samples
+            
+            # Normalize to ensure the sum is still 1
+            partition_sizes[class_idx] /= sum(partition_sizes[class_idx])
     print(partition_sizes)
     train_data_partition = datasets.LabelwisePartitioner(train_dataset, partition_sizes=partition_sizes, class_num=train_class_num, labels=labels)
+    # Add this line to create the plot
+    #datasets.plot_data_distribution(train_dataset, train_data_partition, dataset_type, data_pattern, initial_workers)
     return train_dataset, test_dataset, train_data_partition, labels
 
 def partition_data_non_iid_strict(dataset_type, data_pattern, initial_workers=10):
@@ -136,6 +141,8 @@ def partition_data_non_iid_strict(dataset_type, data_pattern, initial_workers=10
     print(partition_sizes)
     
     train_data_partition = datasets.LabelwisePartitioner(train_dataset, partition_sizes=partition_sizes, class_num=train_class_num, labels=labels)
+    # Add this line to create the plot
+    datasets.plot_data_distribution(train_dataset, train_data_partition, dataset_type, data_pattern, initial_workers)
     return train_dataset, test_dataset, train_data_partition, labels
 
 def print_worker_data_counts(train_data_partition, initial_workers):
@@ -696,12 +703,22 @@ def main():
                         client_optimizers_first[worker_idx].step()
 
             else:
+                # Ensure chosen_worker_num is a multiple of 10
+                assert chosen_worker_num % 10 == 0, "Number of chosen workers must be a multiple of 10"
+
+                # Group selected clients into batches of 10
+                client_batches = [selected_clients[i:i+10] for i in range(0, len(selected_clients), 10)]
+
+                # Cycle through client batches
+                batch_idx = iter_idx % len(client_batches)
+                current_batch = client_batches[batch_idx]
+
                 clients_smash_data = []
                 clients_send_data = []
                 clients_send_targets = []
 
                 sum_bsz = sum([bsz_list[i] for i in selected_clients])
-                for worker_idx in selected_clients:
+                for worker_idx in current_batch:
                     inputs, targets = next(client_train_loader[worker_idx])
 
                     inputs, targets = inputs.to(device), targets.to(device)
@@ -730,9 +747,8 @@ def main():
                 global_optim.step()
 
                 # gradient dispatch
-
                 bsz_s = 0
-                for i, worker_idx in enumerate(selected_clients):
+                for i, worker_idx in enumerate(current_batch):
                     clients_grad = m_data.grad[bsz_s: bsz_s + bsz_list[worker_idx]] * sum_bsz / bsz_list[worker_idx]
                     bsz_s += bsz_list[worker_idx]
 

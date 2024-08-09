@@ -2,27 +2,24 @@ import random
 import numpy as np
 import torch
 import os
-import os.path
-from PIL import Image
-import pandas as pd
-import seaborn as sns
-import matplotlib.pyplot as plt
-import torchvision
-from torch.utils.data import DataLoader, TensorDataset
-from torchvision.datasets import MNIST, CIFAR10, SVHN, FashionMNIST, CIFAR100, ImageFolder, DatasetFolder
+from torch.utils.data import DataLoader, TensorDataset, Sampler
 from torchvision import datasets, transforms
-import torchvision.transforms as transforms
-#from datasets import MNIST_truncated, CIFAR10_truncated, CIFAR100_truncated, ImageFolder_custom, SVHN_custom, FashionMNIST_truncated, CustomTensorDataset, CelebA_custom, FEMNIST, Generated, genData
-from math import sqrt
-from torch.autograd import Variable
-import torch.utils.data as data
-from typing import Optional, Callable
-from torchvision.datasets.utils import download_file_from_google_drive, check_integrity
-import tarfile
-import zipfile
-from torch.utils.model_zoo import tqdm
-import torch.nn.functional as F
+#from torchaudio.datasets import SPEECHCOMMANDS
 
+class SmallDatasetSampler(Sampler):
+    def __init__(self, data_source, num_samples):
+        self.data_source = data_source
+        self.num_samples = num_samples
+
+    def __iter__(self):
+        n = len(self.data_source)
+        if n == 0:
+            return iter([])
+        return (self.data_source[i % n] for i in torch.randperm(self.num_samples))
+
+    def __len__(self):
+        return self.num_samples
+    
 class Partition(object):
 
     def __init__(self, data, index):
@@ -142,15 +139,34 @@ class LabelwisePartitioner(object):
 
 
 def create_dataloaders(dataset, batch_size, selected_idxs=None, shuffle=True, pin_memory=True, num_workers=4, drop_last=False, collate_fn=None):
-    if selected_idxs == None:
+    if selected_idxs is None:
         dataloader = DataLoader(dataset, batch_size=batch_size,
-                                    shuffle=shuffle, pin_memory=pin_memory, num_workers=num_workers, drop_last=drop_last, collate_fn=collate_fn)
+                                shuffle=shuffle, pin_memory=pin_memory, num_workers=num_workers, drop_last=drop_last, collate_fn=collate_fn)
     else:
         partition = Partition(dataset, selected_idxs)
-        dataloader = DataLoader(partition, batch_size=batch_size,
+        
+        # Use custom sampler if the partition is small
+        if len(partition) < batch_size * 10:  # Arbitrary threshold, adjust as needed
+            sampler = SmallDatasetSampler(range(len(partition)), num_samples=batch_size * 42)  # 42 is the number of local steps
+            dataloader = DataLoader(partition, batch_size=batch_size, sampler=sampler,
+                                    pin_memory=pin_memory, num_workers=num_workers, drop_last=drop_last, collate_fn=collate_fn)
+        else:
+            dataloader = DataLoader(partition, batch_size=batch_size,
                                     shuffle=shuffle, pin_memory=pin_memory, num_workers=num_workers, drop_last=drop_last, collate_fn=collate_fn)
     
     return DataLoaderHelper(dataloader)
+
+# def create_dataloaders(dataset, batch_size, selected_idxs=None, shuffle=True, pin_memory=True, num_workers=4, drop_last=False, collate_fn=None):
+#     if selected_idxs == None:
+#         dataloader = DataLoader(dataset, batch_size=batch_size,
+#                                     shuffle=shuffle, pin_memory=pin_memory, num_workers=num_workers, drop_last=drop_last, collate_fn=collate_fn)
+#     else:
+#         partition = Partition(dataset, selected_idxs)
+#         dataloader = DataLoader(partition, batch_size=batch_size,
+#                                     shuffle=shuffle, pin_memory=pin_memory, num_workers=num_workers, drop_last=drop_last, collate_fn=collate_fn)
+    
+#     return DataLoaderHelper(dataloader)
+
 
 def load_datasets(dataset_type, data_path="./data/"):
     
@@ -385,16 +401,6 @@ class SubsetSC(): #SPEECHCOMMANDS
             else:
                 self._walker = [w for w in self._walker if w not in excludes]
 
-def gen_bar_updater() -> Callable[[int, int, int], None]:
-    pbar = tqdm(total=None)
-
-    def bar_update(count, block_size, total_size):
-        if pbar.total is None and total_size:
-            pbar.total = total_size
-        progress_bytes = count * block_size
-        pbar.update(progress_bytes - pbar.n)
-
-    return bar_update
 
 def collate_fn(batch, labels):
 
@@ -419,910 +425,72 @@ def collate_fn(batch, labels):
     targets = torch.stack(targets)
 
     return tensors, targets
-class MNIST_truncated(data.Dataset):
-
-    def __init__(self, root, dataidxs=None, train=True, transform=None, target_transform=None, download=False):
-
-        self.root = root
-        self.dataidxs = dataidxs
-        self.train = train
-        self.transform = transform
-        self.target_transform = target_transform
-        self.download = download
-
-        self.data, self.target = self.__build_truncated_dataset__()
-
-    def __build_truncated_dataset__(self):
-
-        mnist_dataobj = MNIST(self.root, self.train, self.transform, self.target_transform, self.download)
-
-        # if self.train:
-        #     data = mnist_dataobj.train_data
-        #     target = mnist_dataobj.train_labels
-        # else:
-        #     data = mnist_dataobj.test_data
-        #     target = mnist_dataobj.test_labels
-
-        data = mnist_dataobj.data
-        target = mnist_dataobj.targets
-
-        if self.dataidxs is not None:
-            data = data[self.dataidxs]
-            target = target[self.dataidxs]
-
-        return data, target
-
-    def __getitem__(self, index):
-        """
-        Args:
-            index (int): Index
-
-        Returns:
-            tuple: (image, target) where target is index of the target class.
-        """
-        img, target = self.data[index], self.target[index]
-
-        # doing this so that it is consistent with all other datasets
-        # to return a PIL Image
-        img = Image.fromarray(img.numpy(), mode='L')
-
-        # print("mnist img:", img)
-        # print("mnist target:", target)
-
-        if self.transform is not None:
-            img = self.transform(img)
-
-        if self.target_transform is not None:
-            target = self.target_transform(target)
-
-        return img, target
-
-    def __len__(self):
-        return len(self.data)
-    
-# From NIID-bench
-def download_url(url: str, root: str, filename: Optional[str] = None, md5: Optional[str] = None) -> None:
-    """Download a file from a url and place it in root.
-    Args:
-        url (str): URL to download file from
-        root (str): Directory to place downloaded file in
-        filename (str, optional): Name to save the file under. If None, use the basename of the URL
-        md5 (str, optional): MD5 checksum of the download. If None, do not check
-    """
-    import urllib
-
-    root = os.path.expanduser(root)
-    if not filename:
-        filename = os.path.basename(url)
-    fpath = os.path.join(root, filename)
-
-    os.makedirs(root, exist_ok=True)
-
-    # check if file is already present locally
-    if check_integrity(fpath, md5):
-        print('Using downloaded and verified file: ' + fpath)
-    else:   # download the file
-        try:
-            print('Downloading ' + url + ' to ' + fpath)
-            urllib.request.urlretrieve(
-                url, fpath,
-                reporthook=gen_bar_updater()
-            )
-        except (urllib.error.URLError, IOError) as e:  # type: ignore[attr-defined]
-            if url[:5] == 'https':
-                url = url.replace('https:', 'http:')
-                print('Failed download. Trying https -> http instead.'
-                      ' Downloading ' + url + ' to ' + fpath)
-                urllib.request.urlretrieve(
-                    url, fpath,
-                    reporthook=gen_bar_updater()
-                )
-            else:
-                raise e
-        # check integrity of downloaded file
-        if not check_integrity(fpath, md5):
-            raise RuntimeError("File not found or corrupted.")
-
-# From NIID-bench
-def download_and_extract_archive(
-    url: str,
-    download_root: str,
-    extract_root: Optional[str] = None,
-    filename: Optional[str] = None,
-    md5: Optional[str] = None,
-    remove_finished: bool = False,
-) -> None:
-    download_root = os.path.expanduser(download_root)
-    if extract_root is None:
-        extract_root = download_root
-    if not filename:
-        filename = os.path.basename(url)
-
-    download_url(url, download_root, filename, md5)
-
-    archive = os.path.join(download_root, filename)
-    print("Extracting {} to {}".format(archive, extract_root))
-    extract_archive(archive, extract_root, remove_finished)
-
-def _is_tarxz(filename: str) -> bool:
-    return filename.endswith(".tar.xz")
 
 
-def _is_tar(filename: str) -> bool:
-    return filename.endswith(".tar")
+def plot_data_distribution(train_dataset, train_data_partition, dataset_type, data_pattern, initial_workers):
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import pandas as pd
 
+    # Prepare data
+    class_distribution = []
+    total_samples = len(train_dataset)
+    max_samples_per_client = 0
 
-def _is_targz(filename: str) -> bool:
-    return filename.endswith(".tar.gz")
-
-
-def _is_tgz(filename: str) -> bool:
-    return filename.endswith(".tgz")
-
-
-def _is_gzip(filename: str) -> bool:
-    return filename.endswith(".gz") and not filename.endswith(".tar.gz")
-
-
-def _is_zip(filename: str) -> bool:
-    return filename.endswith(".zip")
-
-def extract_archive(from_path: str, to_path: Optional[str] = None, remove_finished: bool = False) -> None:
-    if to_path is None:
-        to_path = os.path.dirname(from_path)
-
-    if _is_tar(from_path):
-        with tarfile.open(from_path, 'r') as tar:
-            def is_within_directory(directory, target):
-                
-                abs_directory = os.path.abspath(directory)
-                abs_target = os.path.abspath(target)
-            
-                prefix = os.path.commonprefix([abs_directory, abs_target])
-                
-                return prefix == abs_directory
-            
-            def safe_extract(tar, path=".", members=None, *, numeric_owner=False):
-            
-                for member in tar.getmembers():
-                    member_path = os.path.join(path, member.name)
-                    if not is_within_directory(path, member_path):
-                        raise Exception("Attempted Path Traversal in Tar File")
-            
-                tar.extractall(path, members, numeric_owner=numeric_owner) 
-                
-            
-            safe_extract(tar, path=to_path)
-    elif _is_targz(from_path) or _is_tgz(from_path):
-        with tarfile.open(from_path, 'r:gz') as tar:
-            def is_within_directory(directory, target):
-                
-                abs_directory = os.path.abspath(directory)
-                abs_target = os.path.abspath(target)
-            
-                prefix = os.path.commonprefix([abs_directory, abs_target])
-                
-                return prefix == abs_directory
-            
-            def safe_extract(tar, path=".", members=None, *, numeric_owner=False):
-            
-                for member in tar.getmembers():
-                    member_path = os.path.join(path, member.name)
-                    if not is_within_directory(path, member_path):
-                        raise Exception("Attempted Path Traversal in Tar File")
-            
-                tar.extractall(path, members, numeric_owner=numeric_owner) 
-                
-            
-            safe_extract(tar, path=to_path)
-    elif _is_tarxz(from_path):
-        with tarfile.open(from_path, 'r:xz') as tar:
-            def is_within_directory(directory, target):
-                
-                abs_directory = os.path.abspath(directory)
-                abs_target = os.path.abspath(target)
-            
-                prefix = os.path.commonprefix([abs_directory, abs_target])
-                
-                return prefix == abs_directory
-            
-            def safe_extract(tar, path=".", members=None, *, numeric_owner=False):
-            
-                for member in tar.getmembers():
-                    member_path = os.path.join(path, member.name)
-                    if not is_within_directory(path, member_path):
-                        raise Exception("Attempted Path Traversal in Tar File")
-            
-                tar.extractall(path, members, numeric_owner=numeric_owner) 
-                
-            
-            safe_extract(tar, path=to_path)
-    elif _is_gzip(from_path):
-        to_path = os.path.join(to_path, os.path.splitext(os.path.basename(from_path))[0])
-        with open(to_path, "wb") as out_f, gzip.GzipFile(from_path) as zip_f:
-            out_f.write(zip_f.read())
-    elif _is_zip(from_path):
-        with zipfile.ZipFile(from_path, 'r') as z:
-            z.extractall(to_path)
-    else:
-        raise ValueError("Extraction of {} not supported".format(from_path))
-
-    if remove_finished:
-        os.remove(from_path)
-
-# From NIID-bench
-def mkdirs(dirpath):
-    try:
-        os.makedirs(dirpath)
-    except Exception as _:
-        pass
-
-# From NIID-bench
-class ImageFolder_custom(DatasetFolder):
-    def __init__(self, root, dataidxs=None, train=True, transform=None, target_transform=None, download=None):
-        self.root = root
-        self.dataidxs = dataidxs
-        self.train = train
-        self.transform = transform
-        self.target_transform = target_transform
-
-        imagefolder_obj = ImageFolder(self.root, self.transform, self.target_transform)
-        self.loader = imagefolder_obj.loader
-        if self.dataidxs is not None:
-            self.samples = np.array(imagefolder_obj.samples)[self.dataidxs]
+    for worker_idx in range(initial_workers):
+        worker_data = train_data_partition.use(worker_idx)
+        if isinstance(worker_data, list):
+            labels = [train_dataset.targets[idx] for idx in worker_data]
         else:
-            self.samples = np.array(imagefolder_obj.samples)
-
-    def __getitem__(self, index):
-        path = self.samples[index][0]
-        target = self.samples[index][1]
-        target = int(target)
-        sample = self.loader(path)
-        if self.transform is not None:
-            sample = self.transform(sample)
-        if self.target_transform is not None:
-            target = self.target_transform(target)
-
-        return sample, target
-
-    def __len__(self):
-        if self.dataidxs is None:
-            return len(self.samples)
-        else:
-            return len(self.dataidxs)
-
-# From NIID-bench
-
-# From NIID-bench
-class FashionMNIST_truncated(data.Dataset):
-
-    def __init__(self, root, dataidxs=None, train=True, transform=None, target_transform=None, download=False):
-
-        self.root = root
-        self.dataidxs = dataidxs
-        self.train = train
-        self.transform = transform
-        self.target_transform = target_transform
-        self.download = download
-
-        self.data, self.target = self.__build_truncated_dataset__()
-
-    def __build_truncated_dataset__(self):
-
-        mnist_dataobj = FashionMNIST(self.root, self.train, self.transform, self.target_transform, self.download)
-
-        # if self.train:
-        #     data = mnist_dataobj.train_data
-        #     target = mnist_dataobj.train_labels
-        # else:
-        #     data = mnist_dataobj.test_data
-        #     target = mnist_dataobj.test_labels
-
-        data = mnist_dataobj.data
-        target = mnist_dataobj.targets
-
-        if self.dataidxs is not None:
-            data = data[self.dataidxs]
-            target = target[self.dataidxs]
-
-        return data, target
-
-    def __getitem__(self, index):
-        """
-        Args:
-            index (int): Index
-
-        Returns:
-            tuple: (image, target) where target is index of the target class.
-        """
-        img, target = self.data[index], self.target[index]
-
-        # doing this so that it is consistent with all other datasets
-        # to return a PIL Image
-        img = Image.fromarray(img.numpy(), mode='L')
-
-        # print("mnist img:", img)
-        # print("mnist target:", target)
-
-        if self.transform is not None:
-            img = self.transform(img)
-
-        if self.target_transform is not None:
-            target = self.target_transform(target)
-
-        return img, target
-
-    def __len__(self):
-        return len(self.data)
-
-# From NIID-bench
-class CIFAR100_truncated(data.Dataset):
-
-    def __init__(self, root, dataidxs=None, train=True, transform=None, target_transform=None, download=False):
-
-        self.root = root
-        self.dataidxs = dataidxs
-        self.train = train
-        self.transform = transform
-        self.target_transform = target_transform
-        self.download = download
-
-        self.data, self.target = self.__build_truncated_dataset__()
-
-    def __build_truncated_dataset__(self):
-
-        cifar_dataobj = CIFAR100(self.root, self.train, self.transform, self.target_transform, self.download)
-
-        if torchvision.__version__ == '0.2.1':
-            if self.train:
-                data, target = cifar_dataobj.train_data, np.array(cifar_dataobj.train_labels)
-            else:
-                data, target = cifar_dataobj.test_data, np.array(cifar_dataobj.test_labels)
-        else:
-            data = cifar_dataobj.data
-            target = np.array(cifar_dataobj.targets)
-
-        if self.dataidxs is not None:
-            data = data[self.dataidxs]
-            target = target[self.dataidxs]
-
-        return data, target
-
-    def __getitem__(self, index):
-        """
-        Args:
-            index (int): Index
-        Returns:
-            tuple: (image, target) where target is index of the target class.
-        """
-        img, target = self.data[index], self.target[index]
-        img = Image.fromarray(img)
-        # print("cifar10 img:", img)
-        # print("cifar10 target:", target)
-
-        if self.transform is not None:
-            img = self.transform(img)
-
-        if self.target_transform is not None:
-            target = self.target_transform(target)
-
-        return img, target
-
-    def __len__(self):
-        return len(self.data)
-
-# From NIID-bench
-class CIFAR10_truncated(data.Dataset):
-
-    def __init__(self, root, dataidxs=None, train=True, transform=None, target_transform=None, download=False):
-
-        self.root = root
-        self.dataidxs = dataidxs
-        self.train = train
-        self.transform = transform
-        self.target_transform = target_transform
-        self.download = download
-
-        self.data, self.target = self.__build_truncated_dataset__()
-
-    def __build_truncated_dataset__(self):
-
-        cifar_dataobj = CIFAR10(self.root, self.train, self.transform, self.target_transform, self.download)
-
-        data = cifar_dataobj.data
-        target = np.array(cifar_dataobj.targets)
-
-        if self.dataidxs is not None:
-            data = data[self.dataidxs]
-            target = target[self.dataidxs]
-
-        return data, target
-
-    def truncate_channel(self, index):
-        for i in range(index.shape[0]):
-            gs_index = index[i]
-            self.data[gs_index, :, :, 1] = 0.0
-            self.data[gs_index, :, :, 2] = 0.0
-
-    def __getitem__(self, index):
-        """
-        Args:
-            index (int): Index
-
-        Returns:
-            tuple: (image, target) where target is index of the target class.
-        """
-        img, target = self.data[index], self.target[index]
-
-        # print("cifar10 img:", img)
-        # print("cifar10 target:", target)
-
-        if self.transform is not None:
-            img = self.transform(img)
-
-        if self.target_transform is not None:
-            target = self.target_transform(target)
-
-        return img, target
-
-    def __len__(self):
-        return len(self.data)
-# From NIID-bench
-def load_fmnist_data(datadir):
-
-    transform = transforms.Compose([transforms.ToTensor()])
-
-    mnist_train_ds = FashionMNIST_truncated(datadir, train=True, download=True, transform=transform)
-    mnist_test_ds = FashionMNIST_truncated(datadir, train=False, download=True, transform=transform)
-
-    X_train, y_train = mnist_train_ds.data, mnist_train_ds.target
-    X_test, y_test = mnist_test_ds.data, mnist_test_ds.target
-
-    X_train = X_train.data.numpy()
-    y_train = y_train.data.numpy()
-    X_test = X_test.data.numpy()
-    y_test = y_test.data.numpy()
-
-    return (X_train, y_train, X_test, y_test)
-
-# From NIID-bench
-class FEMNIST(MNIST):
-    """
-    This dataset is derived from the Leaf repository
-    (https://github.com/TalwalkarLab/leaf) pre-processing of the Extended MNIST
-    dataset, grouping examples by writer. Details about Leaf were published in
-    "LEAF: A Benchmark for Federated Settings" https://arxiv.org/abs/1812.01097.
-    """
-    resources = [
-        ('https://raw.githubusercontent.com/tao-shen/FEMNIST_pytorch/master/femnist.tar.gz',
-         '59c65cec646fc57fe92d27d83afdf0ed')]
-
-    def __init__(self, root, dataidxs=None, train=True, transform=None, target_transform=None,
-                 download=False):
-        super(MNIST, self).__init__(root, transform=transform,
-                                    target_transform=target_transform)
-        self.train = train
-        self.dataidxs = dataidxs
-
-        if download:
-            self.download()
-
-        if not self._check_exists():
-            raise RuntimeError('Dataset not found.' +
-                               ' You can use download=True to download it')
-        if self.train:
-            data_file = self.training_file
-        else:
-            data_file = self.test_file
-
-        self.data, self.targets, self.users_index = torch.load(os.path.join(self.processed_folder, data_file))
-
-        if self.dataidxs is not None:
-            self.data = self.data[self.dataidxs]
-            self.targets = self.targets[self.dataidxs]        
-
-
-    def __getitem__(self, index):
-        img, target = self.data[index], int(self.targets[index])
-        img = Image.fromarray(img.numpy(), mode='F')
-        if self.transform is not None:
-            img = self.transform(img)
-        if self.target_transform is not None:
-            target = self.target_transform(target)
-        return img, target
-
-    def download(self):
-        """Download the FEMNIST data if it doesn't exist in processed_folder already."""
-        import shutil
-
-        if self._check_exists():
-            return
-
-        mkdirs(self.raw_folder)
-        mkdirs(self.processed_folder)
-
-        # download files
-        for url, md5 in self.resources:
-            filename = url.rpartition('/')[2]
-            download_and_extract_archive(url, download_root=self.raw_folder, filename=filename, md5=md5)
-
-        # process and save as torch files
-        print('Processing...')
-        shutil.move(os.path.join(self.raw_folder, self.training_file), self.processed_folder)
-        shutil.move(os.path.join(self.raw_folder, self.test_file), self.processed_folder)
-
-    def __len__(self):
-        return len(self.data)
-    
-    def _check_exists(self) -> bool:
-        return all(
-            check_integrity(os.path.join(self.raw_folder, os.path.splitext(os.path.basename(url))[0]+os.path.splitext(os.path.basename(url))[1]))
-            for url, _ in self.resources
-        )
-
-
-# From NIID-bench
-def load_mnist_data(datadir):
-
-    transform = transforms.Compose([transforms.ToTensor()])
-
-    mnist_train_ds = MNIST_truncated(datadir, train=True, download=True, transform=transform)
-    mnist_test_ds = MNIST_truncated(datadir, train=False, download=True, transform=transform)
-
-    X_train, y_train = mnist_train_ds.data, mnist_train_ds.target
-    X_test, y_test = mnist_test_ds.data, mnist_test_ds.target
-
-    X_train = X_train.data.numpy()
-    y_train = y_train.data.numpy()
-    X_test = X_test.data.numpy()
-    y_test = y_test.data.numpy()
-
-    return (X_train, y_train, X_test, y_test)
-
-# From NIID-bench
-def load_cifar10_data(datadir):
-
-    transform = transforms.Compose([transforms.ToTensor()])
-
-    cifar10_train_ds = CIFAR10_truncated(datadir, train=True, download=True, transform=transform)
-    cifar10_test_ds = CIFAR10_truncated(datadir, train=False, download=True, transform=transform)
-
-    X_train, y_train = cifar10_train_ds.data, cifar10_train_ds.target
-    X_test, y_test = cifar10_test_ds.data, cifar10_test_ds.target
-
-    # y_train = y_train.numpy()
-    # y_test = y_test.numpy()
-
-    return (X_train, y_train, X_test, y_test)
-
-def record_net_data_stats(y_train, net_dataidx_map):
-
-    net_cls_counts = {}
-    
-    for net_i, dataidx in net_dataidx_map.items():
-        unq, unq_cnt = np.unique(y_train[dataidx], return_counts=True)
-        tmp = {unq[i]: unq_cnt[i] for i in range(len(unq))}
-        net_cls_counts[net_i] = tmp
+            labels = [sample[1] for sample in worker_data]
         
-    dataframe = pd.DataFrame(net_cls_counts).T.fillna(0)
-    dataframe = dataframe.reindex(sorted(dataframe.columns), axis=1)
-    #dataframe.index += 1
-    #print(dataframe)
+        unique, counts = np.unique(labels, return_counts=True)
+        worker_samples = len(worker_data)
+        max_samples_per_client = max(max_samples_per_client, worker_samples)
 
-    plt.title('Data Bins per client')
-    svm = sns.heatmap(dataframe, annot=True, fmt='g', cmap='rocket_r', square=True, linewidth=.5)
-    plt.xlabel('Class')
-    plt.ylabel('Client')
-    figure = svm.get_figure()
+        for class_idx in range(len(train_dataset.classes)):
+            count = counts[np.where(unique == class_idx)[0][0]] if class_idx in unique else 0
+            class_distribution.append({
+                'Client': f'Client {worker_idx}',  # Changed to start from 0
+                'Class': train_dataset.classes[class_idx],
+                'Count': count,
+                'Total': worker_samples
+            })
+
+    # Create DataFrame
+    df = pd.DataFrame(class_distribution)
+
+    # Create plot
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 12), gridspec_kw={'height_ratios': [3, 1]})
+    fig.suptitle(f'{dataset_type} Distribution (Pattern {data_pattern})', fontsize=16)
+
+    # Stacked bar plot
+    df_pivot = df.pivot(index='Client', columns='Class', values='Count')
+    df_pivot = df_pivot.reindex(sorted(df_pivot.index, key=lambda x: int(x.split()[-1])))  # Sort clients numerically
+    df_pivot.plot(kind='bar', stacked=True, ax=ax1)
+    ax1.set_ylabel('Number of Samples')
+    ax1.set_title('Class Distribution per Client')
+    ax1.legend(title='Class', bbox_to_anchor=(1.05, 1), loc='upper left')
+
+    # Total samples bar plot
+    client_totals = df.groupby('Client')['Count'].sum().sort_index()
+    client_totals.plot(kind='bar', ax=ax2, color='skyblue')
+    ax2.set_ylabel('Total Samples')
+    ax2.set_title('Total Samples per Client')
     
-    directory = "databins"
-    if not os.path.exists(directory):
-        # If it doesn't exist, create it
-        os.makedirs(directory)
-        
-    #figure.savefig(f'{directory}/heatmap.png', dpi=400)
-    
-    #logger.info('Data statistics: %s' % str(net_cls_counts))
-    #logger.info('Saved Data bins Heatmap')
+    # Percentage text on total samples bars
+    for i, v in enumerate(client_totals):
+        ax2.text(i, v, f'{v/total_samples:.2%}', ha='center', va='bottom')
 
-    return net_cls_counts
+    plt.tight_layout()
+    plt.savefig(f'{dataset_type}_distribution_pattern_{data_pattern}_workers_{initial_workers}.png', dpi=300, bbox_inches='tight')
+    plt.close()
 
-'''
-generate partion for extrem label skew 
-Used code from NIID-Benchmark
-'''
-def partition_data_label_skew(dataset, datadir, partition, n_parties, beta=0.4):
-    #np.random.seed(2020)
-    #torch.manual_seed(2020)
-
-    if dataset == 'mnist':
-        X_train, y_train, X_test, y_test = load_mnist_data(datadir)
-    elif dataset == 'fmnist':
-        X_train, y_train, X_test, y_test = load_fmnist_data(datadir)
-    elif dataset == 'CIFAR10':
-        X_train, y_train, X_test, y_test = load_cifar10_data(datadir)
-
-    n_train = y_train.shape[0]
-
-    if partition == "homo": # feature distribution - noise 
-        idxs = np.random.permutation(n_train)
-        batch_idxs = np.array_split(idxs, n_parties)
-        net_dataidx_map = {i: batch_idxs[i] for i in range(n_parties)}
-
-
-    elif partition == "noniid-labeldir": #label-distribution skew - distribution
-        min_size = 0
-        min_require_size = 10
-        K = 10 # number of samples
-        if dataset in ('celeba', 'covtype', 'a9a', 'rcv1', 'SUSY'):
-            K = 2
-            # min_require_size = 100
-        if dataset == 'cifar100':
-            K = 100
-        elif dataset == 'tinyimagenet':
-            K = 200
-
-        N = y_train.shape[0]
-        #np.random.seed(2020)
-        net_dataidx_map = {}
-
-        while min_size < min_require_size:
-            idx_batch = [[] for _ in range(n_parties)]
-            for k in range(K):
-                idx_k = np.where(y_train == k)[0]
-                np.random.shuffle(idx_k)
-                proportions = np.random.dirichlet(np.repeat(beta, n_parties))
-                ## Balance
-                proportions = np.array([p * (len(idx_j) < N / n_parties) for p, idx_j in zip(proportions, idx_batch)])
-                proportions = proportions / proportions.sum()
-                proportions = (np.cumsum(proportions) * len(idx_k)).astype(int)[:-1]
-                idx_batch = [idx_j + idx.tolist() for idx_j, idx in zip(idx_batch, np.split(idx_k, proportions))]
-                min_size = min([len(idx_j) for idx_j in idx_batch])
-
-        for j in range(n_parties):
-            np.random.shuffle(idx_batch[j])
-            net_dataidx_map[j] = idx_batch[j]
-
-    elif partition > "noniid-#label0" and partition <= "noniid-#label9": #label-distribution skew - quantity
-        num = eval(partition[13:])
-        #print(f'the num is {num}')
-        if dataset in ('celeba', 'covtype', 'a9a', 'rcv1', 'SUSY'):
-            num = 1
-            K = 2
-        else:
-            K = 10
-        if dataset == "cifar100":
-            K = 100
-        elif dataset == "tinyimagenet":
-            K = 200
-        if num == 10:
-            net_dataidx_map ={i:np.ndarray(0,dtype=np.int64) for i in range(n_parties)}
-            for i in range(10):
-                idx_k = np.where(y_train==i)[0]
-                np.random.shuffle(idx_k)
-                split = np.array_split(idx_k,n_parties)
-                for j in range(n_parties):
-                    net_dataidx_map[j]=np.append(net_dataidx_map[j],split[j])
-        else:
-            times=[0 for i in range(K)]
-            contain=[]
-            used = []
-            #NOTE:  if num < k/_parties is there any point of that?
-            if num == int(K/n_parties):
-                for i in range(n_parties):
-                    current=[i%K]
-                    used.append(i%K) 
-                    times[i%K]+=1
-                    j=1
-                    while (j<num):
-                        ind=random.randint(0,K-1)
-                        if ((ind not in current )and (ind not in used)):
-                            j=j+1
-                            current.append(ind)
-                            used.append(ind) 
-                            times[ind]+=1
-                    contain.append(current)
-            
-            else:
-                for i in range(n_parties):
-                    current=[i%K]
-                    times[i%K]+=1
-                    j=1
-                    while (j<num):
-                        ind=random.randint(0,K-1)
-                        if (ind not in current):
-                            j=j+1
-                            current.append(ind)
-                            times[ind]+=1
-                    contain.append(current)
-            net_dataidx_map ={i:np.ndarray(0,dtype=np.int64) for i in range(n_parties)}
-            for i in range(K):
-                idx_k = np.where(y_train==i)[0]
-                np.random.shuffle(idx_k)
-                split = np.array_split(idx_k,times[i])
-                ids=0
-                for j in range(n_parties):
-                    if i in contain[j]:
-                        net_dataidx_map[j]=np.append(net_dataidx_map[j],split[ids])
-                        ids+=1
-        
-    traindata_cls_counts = record_net_data_stats(y_train, net_dataidx_map)
-    return (X_train, y_train, X_test, y_test, net_dataidx_map, traindata_cls_counts)
-
-class Generated(MNIST):
-
-    def __init__(self, root, dataidxs=None, train=True, transform=None, target_transform=None,
-                 download=False):
-        super(MNIST, self).__init__(root, transform=transform,
-                                    target_transform=target_transform)
-        self.train = train
-        self.dataidxs = dataidxs
-
-        if self.train:
-            self.data = np.load("data/generated/X_train.npy")
-            self.targets = np.load("data/generated/y_train.npy")
-        else:
-            self.data = np.load("data/generated/X_test.npy")
-            self.targets = np.load("data/generated/y_test.npy")            
-
-        if self.dataidxs is not None:
-            self.data = self.data[self.dataidxs]
-            self.targets = self.targets[self.dataidxs]        
-
-
-    def __getitem__(self, index):
-        data, target = self.data[index], self.targets[index]
-        return data, target
-
-    def __len__(self):
-        return len(self.data)
-
-
-# From NIID-bench
-class AddGaussianNoise(object):
-    def __init__(self, mean=0., std=1., net_id=None, total=0):
-        self.std = std
-        self.mean = mean
-        self.net_id = net_id
-        self.num = int(sqrt(total))
-        if self.num * self.num < total:
-            self.num = self.num + 1
-
-    def __call__(self, tensor):
-        if self.net_id is None:
-            return tensor + torch.randn(tensor.size()) * self.std + self.mean
-        else:
-            tmp = torch.randn(tensor.size())
-            filt = torch.zeros(tensor.size())
-            size = int(28 / self.num)
-            row = int(self.net_id / size)
-            col = self.net_id % size
-            for i in range(size):
-                for j in range(size):
-                    filt[:,row*size+i,col*size+j] = 1
-            tmp = tmp * filt
-            return tensor + tmp * self.std + self.mean
-
-    def __repr__(self):
-        return self.__class__.__name__ + '(mean={0}, std={1})'.format(self.mean, self.std)
-    
-# From NIID-bench
-def get_dataloader_skew(dataset, datadir, train_bs, test_bs, dataidxs=None, noise_level=0, net_id=None, total=0, model='alexnet'):
-    if dataset in ('mnist', 'femnist', 'fmnist', 'CIFAR10', 'svhn', 'generated', 'covtype', 'a9a', 'rcv1', 'SUSY', 'cifar100', 'tinyimagenet'):
-        if dataset == 'mnist':
-            dl_obj = MNIST_truncated
-
-            transform_train = transforms.Compose([
-                transforms.ToTensor(),
-                AddGaussianNoise(0., noise_level, net_id, total)])
-
-            transform_test = transforms.Compose([
-                transforms.ToTensor(),
-                AddGaussianNoise(0., noise_level, net_id, total)])
-
-        elif dataset == 'femnist':
-            dl_obj = FEMNIST
-            transform_train = transforms.Compose([
-                transforms.ToTensor(),
-                AddGaussianNoise(0., noise_level, net_id, total)])
-            transform_test = transforms.Compose([
-                transforms.ToTensor(),
-                AddGaussianNoise(0., noise_level, net_id, total)])
-
-        elif dataset == 'fmnist':
-            dl_obj = FashionMNIST_truncated
-            transform_train = transforms.Compose([
-                transforms.ToTensor(),
-                AddGaussianNoise(0., noise_level, net_id, total)])
-            transform_test = transforms.Compose([
-                transforms.ToTensor(),
-                AddGaussianNoise(0., noise_level, net_id, total)])
-        elif dataset == 'CIFAR10':
-            dl_obj = CIFAR10_truncated
-            if model == 'AlexNet':
-                transform_train = transforms.Compose([
-                    transforms.ToTensor(),
-                    transforms.Lambda(lambda x: F.pad(
-                        Variable(x.unsqueeze(0), requires_grad=False),
-                        (4, 4, 4, 4), mode='reflect').data.squeeze()),
-                    transforms.ToPILImage(),
-                    transforms.RandomCrop(32),
-                    transforms.RandomHorizontalFlip(),
-                    transforms.ToTensor(),
-                    AddGaussianNoise(0., noise_level, net_id, total),
-                    transforms.Resize((70, 70))
-                ])
-                # data prep for test set
-                transform_test = transforms.Compose([
-                    transforms.ToTensor(),
-                    AddGaussianNoise(0., noise_level, net_id, total),
-                    transforms.Resize((70, 70))])
-            else:
-                transform_train = transforms.Compose([
-                    transforms.ToTensor(),
-                    transforms.Lambda(lambda x: F.pad(
-                        Variable(x.unsqueeze(0), requires_grad=False),
-                        (4, 4, 4, 4), mode='reflect').data.squeeze()),
-                    transforms.ToPILImage(),
-                    transforms.RandomCrop(32),
-                    transforms.RandomHorizontalFlip(),
-                    transforms.ToTensor(),
-                    AddGaussianNoise(0., noise_level, net_id, total)
-                ])
-                # data prep for test set
-                transform_test = transforms.Compose([
-                    transforms.ToTensor(),
-                    AddGaussianNoise(0., noise_level, net_id, total)])
-            
-        elif dataset == 'cifar100':
-            dl_obj = CIFAR100_truncated
-
-            normalize = transforms.Normalize(mean=[0.5070751592371323, 0.48654887331495095, 0.4409178433670343],
-                                             std=[0.2673342858792401, 0.2564384629170883, 0.27615047132568404])
-            
-            transform_train = transforms.Compose([
-                # transforms.ToPILImage(),
-                transforms.RandomCrop(32, padding=4),
-                transforms.RandomHorizontalFlip(),
-                transforms.RandomRotation(15),
-                transforms.ToTensor(),
-                normalize
-            ])
-            # data prep for test set
-            transform_test = transforms.Compose([
-                transforms.ToTensor(),
-                normalize])
-        elif dataset == 'tinyimagenet':
-            dl_obj = ImageFolder_custom
-            transform_train = transforms.Compose([
-                transforms.Resize(32), 
-                transforms.RandomCrop(32, padding=4),
-                transforms.RandomHorizontalFlip(),
-                transforms.RandomRotation(15),
-                transforms.ToTensor(),
-                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-            ])
-            transform_test = transforms.Compose([
-                transforms.Resize(32), 
-                transforms.ToTensor(),
-                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-            ])
-
-        else:
-            dl_obj = Generated
-            transform_train = None
-            transform_test = None
-
-
-        if dataset == "tinyimagenet":
-            train_ds = dl_obj(datadir+'./train/', dataidxs=dataidxs, transform=transform_train)
-            test_ds = dl_obj(datadir+'./val/', transform=transform_test)
-        else:
-            train_ds = dl_obj(datadir, dataidxs=dataidxs, train=True, transform=transform_train, download=True)
-            test_ds = dl_obj(datadir, train=False, transform=transform_test, download=True)
-
-        train_dl = data.DataLoader(dataset=train_ds, batch_size=train_bs, shuffle=True, drop_last=False)
-        # DataLoader(dataset=train_ds, batch_size=train_bs, shuffle=True, drop_last=False)
-        test_dl = data.DataLoader(dataset=test_ds, batch_size=test_bs, shuffle=False, drop_last=False)
-
-    return train_dl, test_dl, train_ds, test_ds
+    # Print detailed distribution information
+    print(f"\nDetailed class distribution for {dataset_type} (Pattern {data_pattern}):")
+    for worker_idx in range(initial_workers):
+        worker_dist = df[df['Client'] == f'Client {worker_idx}']
+        worker_samples = worker_dist['Total'].iloc[0]
+        print(f"\nClient {worker_idx}: {worker_samples} samples ({worker_samples/total_samples:.2%} of total data)")
+        for _, row in worker_dist.iterrows():
+            print(f"  {row['Class']}: {row['Count']} ({row['Count']/worker_samples:.2%})")

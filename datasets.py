@@ -2,23 +2,12 @@ import random
 import numpy as np
 import torch
 import os
-from torch.utils.data import DataLoader, TensorDataset, Sampler
+from torch.utils.data import DataLoader, TensorDataset
 from torchvision import datasets, transforms
 #from torchaudio.datasets import SPEECHCOMMANDS
-
-class SmallDatasetSampler(Sampler):
-    def __init__(self, data_source, num_samples):
-        self.data_source = data_source
-        self.num_samples = num_samples
-
-    def __iter__(self):
-        n = len(self.data_source)
-        if n == 0:
-            return iter([])
-        return (self.data_source[i % n] for i in torch.randperm(self.num_samples))
-
-    def __len__(self):
-        return self.num_samples
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
     
 class Partition(object):
 
@@ -139,33 +128,15 @@ class LabelwisePartitioner(object):
 
 
 def create_dataloaders(dataset, batch_size, selected_idxs=None, shuffle=True, pin_memory=True, num_workers=4, drop_last=False, collate_fn=None):
-    if selected_idxs is None:
+    if selected_idxs == None:
         dataloader = DataLoader(dataset, batch_size=batch_size,
-                                shuffle=shuffle, pin_memory=pin_memory, num_workers=num_workers, drop_last=drop_last, collate_fn=collate_fn)
+                                    shuffle=shuffle, pin_memory=pin_memory, num_workers=num_workers, drop_last=drop_last, collate_fn=collate_fn)
     else:
         partition = Partition(dataset, selected_idxs)
-        
-        # Use custom sampler if the partition is small
-        if len(partition) < batch_size * 10:  # Arbitrary threshold, adjust as needed
-            sampler = SmallDatasetSampler(range(len(partition)), num_samples=batch_size * 42)  # 42 is the number of local steps
-            dataloader = DataLoader(partition, batch_size=batch_size, sampler=sampler,
-                                    pin_memory=pin_memory, num_workers=num_workers, drop_last=drop_last, collate_fn=collate_fn)
-        else:
-            dataloader = DataLoader(partition, batch_size=batch_size,
+        dataloader = DataLoader(partition, batch_size=batch_size,
                                     shuffle=shuffle, pin_memory=pin_memory, num_workers=num_workers, drop_last=drop_last, collate_fn=collate_fn)
     
     return DataLoaderHelper(dataloader)
-
-# def create_dataloaders(dataset, batch_size, selected_idxs=None, shuffle=True, pin_memory=True, num_workers=4, drop_last=False, collate_fn=None):
-#     if selected_idxs == None:
-#         dataloader = DataLoader(dataset, batch_size=batch_size,
-#                                     shuffle=shuffle, pin_memory=pin_memory, num_workers=num_workers, drop_last=drop_last, collate_fn=collate_fn)
-#     else:
-#         partition = Partition(dataset, selected_idxs)
-#         dataloader = DataLoader(partition, batch_size=batch_size,
-#                                     shuffle=shuffle, pin_memory=pin_memory, num_workers=num_workers, drop_last=drop_last, collate_fn=collate_fn)
-    
-#     return DataLoaderHelper(dataloader)
 
 
 def load_datasets(dataset_type, data_path="./data/"):
@@ -402,57 +373,143 @@ class SubsetSC(): #SPEECHCOMMANDS
                 self._walker = [w for w in self._walker if w not in excludes]
 
 
+# def collate_fn(batch, labels):
+
+#     # A data tuple has the form:
+#     # waveform, sample_rate, label, speaker_id, utterance_number
+
+#     tensors, targets = [], []
+
+#     # Gather in lists, and encode labels as indices
+#     for waveform, _, label, *_ in batch:
+#         tensors += [waveform]
+#         targets += [torch.tensor(labels.index(label))]
+
+#     def pad_sequence(batch):
+#         # Make all tensor in a batch the same length by padding with zeros
+#         batch = [item.t() for item in batch]
+#         batch = torch.nn.utils.rnn.pad_sequence(batch, batch_first=True, padding_value=0.)
+#         return batch.permute(0, 2, 1)
+
+#     # Group the list of tensors into a batched tensor
+#     tensors = pad_sequence(tensors)
+#     targets = torch.stack(targets)
+
+#     return tensors, targets
+
 def collate_fn(batch, labels):
-
-    # A data tuple has the form:
-    # waveform, sample_rate, label, speaker_id, utterance_number
-
     tensors, targets = [], []
 
-    # Gather in lists, and encode labels as indices
-    for waveform, _, label, *_ in batch:
-        tensors += [waveform]
-        targets += [torch.tensor(labels.index(label))]
+    for sample in batch:
+        tensors.append(sample['img'] if 'img' in sample else sample['image'])
+        targets.append(torch.tensor(labels.index(sample['label'])))
 
-    def pad_sequence(batch):
-        # Make all tensor in a batch the same length by padding with zeros
-        batch = [item.t() for item in batch]
-        batch = torch.nn.utils.rnn.pad_sequence(batch, batch_first=True, padding_value=0.)
-        return batch.permute(0, 2, 1)
-
-    # Group the list of tensors into a batched tensor
-    tensors = pad_sequence(tensors)
+    tensors = torch.stack(tensors)
     targets = torch.stack(targets)
 
     return tensors, targets
 
 
-def plot_data_distribution(train_dataset, train_data_partition, dataset_type, data_pattern, initial_workers):
-    import matplotlib.pyplot as plt
-    import numpy as np
-    import pandas as pd
+# def plot_data_distribution(dataset, train_data_partition, dataset_type, data_pattern, initial_workers, use_flower=False):
+#     import matplotlib.pyplot as plt
+#     import numpy as np
+#     import pandas as pd
 
+#     # Prepare data
+#     class_distribution = []
+#     total_samples = 0
+#     max_samples_per_client = 0
+
+#     for worker_idx in range(initial_workers):
+#         if use_flower:
+#             partition = dataset.load_partition(worker_idx)
+#             labels = [sample['label'] for sample in partition]
+#             worker_samples = len(partition)
+#         else:
+#             worker_data = train_data_partition.use(worker_idx)
+#             if isinstance(worker_data, list):
+#                 labels = [dataset.targets[idx] for idx in worker_data]
+#             else:
+#                 labels = [sample[1] for sample in worker_data]
+#             worker_samples = len(worker_data)
+        
+#         total_samples += worker_samples
+#         unique, counts = np.unique(labels, return_counts=True)
+#         max_samples_per_client = max(max_samples_per_client, worker_samples)
+
+#         classes = range(10) if dataset_type == 'CIFAR10' else range(len(dataset.classes))
+#         for class_idx in classes:
+#             count = counts[np.where(unique == class_idx)[0][0]] if class_idx in unique else 0
+#             class_distribution.append({
+#                 'Client': f'Client {worker_idx}',
+#                 'Class': f'Class {class_idx}',
+#                 'Count': count,
+#                 'Total': worker_samples
+#             })
+
+#     # Create DataFrame
+#     df = pd.DataFrame(class_distribution)
+
+#     # Create plot
+#     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 12), gridspec_kw={'height_ratios': [3, 1]})
+#     fig.suptitle(f'{dataset_type} Distribution (Pattern {data_pattern})', fontsize=16)
+
+#     # Stacked bar plot
+#     df_pivot = df.pivot(index='Client', columns='Class', values='Count')
+#     df_pivot = df_pivot.reindex(sorted(df_pivot.index, key=lambda x: int(x.split()[-1])))
+#     df_pivot.plot(kind='bar', stacked=True, ax=ax1)
+#     ax1.set_ylabel('Number of Samples')
+#     ax1.set_title('Class Distribution per Client')
+#     ax1.legend(title='Class', bbox_to_anchor=(1.05, 1), loc='upper left')
+
+#     # Total samples bar plot
+#     client_totals = df.groupby('Client')['Count'].sum().sort_index()
+#     client_totals.plot(kind='bar', ax=ax2, color='skyblue')
+#     ax2.set_ylabel('Total Samples')
+#     ax2.set_title('Total Samples per Client')
+    
+#     # Percentage text on total samples bars
+#     for i, v in enumerate(client_totals):
+#         ax2.text(i, v, f'{v/total_samples:.2%}', ha='center', va='bottom')
+
+#     plt.tight_layout()
+#     plt.savefig(f'{dataset_type}_distribution_pattern_{data_pattern}_workers_{initial_workers}.png', dpi=300, bbox_inches='tight')
+#     plt.close()
+
+#     # Print detailed distribution information
+#     print(f"\nDetailed class distribution for {dataset_type} (Pattern {data_pattern}):")
+#     for worker_idx in range(initial_workers):
+#         worker_dist = df[df['Client'] == f'Client {worker_idx}']
+#         worker_samples = worker_dist['Total'].iloc[0]
+#         print(f"\nClient {worker_idx}: {worker_samples} samples ({worker_samples/total_samples:.2%} of total data)")
+#         for _, row in worker_dist.iterrows():
+#             print(f"  {row['Class']}: {row['Count']} ({row['Count']/worker_samples:.2%})")
+def plot_data_distribution(dataset, train_data_partition, dataset_type, data_pattern, initial_workers, use_flower=False):
     # Prepare data
     class_distribution = []
-    total_samples = len(train_dataset)
-    max_samples_per_client = 0
+    total_samples = 0
+    class_names = range(10)  # Assuming 10 classes for CIFAR10
 
     for worker_idx in range(initial_workers):
-        worker_data = train_data_partition.use(worker_idx)
-        if isinstance(worker_data, list):
-            labels = [train_dataset.targets[idx] for idx in worker_data]
+        if use_flower:
+            partition = dataset.load_partition(worker_idx)
+            labels = [sample['label'] for sample in partition]
         else:
-            labels = [sample[1] for sample in worker_data]
+            worker_data = train_data_partition.use(worker_idx)
+            if isinstance(worker_data, list):
+                labels = [dataset.targets[idx] for idx in worker_data]
+            else:
+                labels = [sample[1] for sample in worker_data]
         
         unique, counts = np.unique(labels, return_counts=True)
-        worker_samples = len(worker_data)
-        max_samples_per_client = max(max_samples_per_client, worker_samples)
+        worker_samples = len(labels)
+        total_samples += worker_samples
 
-        for class_idx in range(len(train_dataset.classes)):
+        for class_idx in class_names:
             count = counts[np.where(unique == class_idx)[0][0]] if class_idx in unique else 0
             class_distribution.append({
-                'Client': f'Client {worker_idx}',  # Changed to start from 0
-                'Class': train_dataset.classes[class_idx],
+                'Client': f'Client {worker_idx}',
+                'Class': f'Class {class_idx}',
                 'Count': count,
                 'Total': worker_samples
             })
@@ -466,7 +523,7 @@ def plot_data_distribution(train_dataset, train_data_partition, dataset_type, da
 
     # Stacked bar plot
     df_pivot = df.pivot(index='Client', columns='Class', values='Count')
-    df_pivot = df_pivot.reindex(sorted(df_pivot.index, key=lambda x: int(x.split()[-1])))  # Sort clients numerically
+    df_pivot = df_pivot.reindex(sorted(df_pivot.index, key=lambda x: int(x.split()[-1])))
     df_pivot.plot(kind='bar', stacked=True, ax=ax1)
     ax1.set_ylabel('Number of Samples')
     ax1.set_title('Class Distribution per Client')

@@ -6,10 +6,16 @@ def create_model_instance_SL(dataset_type, model_type, worker_num, class_num=10)
     client_nets = {net_i: None for net_i in range(worker_num)}
 
     if dataset_type == 'CIFAR10':
-        server = AlexNet_U_Shape(3, -1, class_num)
-        for net_i in range(worker_num):
-            net = AlexNet_U_Shape(0, 3, class_num)
-            client_nets[net_i] = net
+        if model_type == 'AlexNet':
+            server = AlexNet_U_Shape(3, -1, class_num)
+            for net_i in range(worker_num):
+                net = AlexNet_U_Shape(0, 3, class_num)
+                client_nets[net_i] = net
+        elif model_type == 'VGG16':
+            server = VGG16_CIFAR10_U_Shape(3, -1, class_num)
+            for net_i in range(worker_num):
+                net = VGG16_CIFAR10_U_Shape(0, 3, class_num)
+                client_nets[net_i] = net
         return client_nets, server
 
     elif dataset_type == 'image100':
@@ -37,10 +43,16 @@ def create_model_instance_SL_two_splits(dataset_type, model_type, worker_num, cl
     client_nets = {net_i: None for net_i in range(worker_num)}
     
     if dataset_type == 'CIFAR10':
-        intermediate_part = AlexNet_U_Shape(1, 8, class_num)
-        for net_i in range(worker_num):
-            net = (AlexNet_U_Shape(0, 1, class_num), AlexNet_U_Shape(8, -1, class_num))
-            client_nets[net_i] = net
+        if model_type == 'AlexNet':
+            intermediate_part = AlexNet_U_Shape(1, 8, class_num)
+            for net_i in range(worker_num):
+                net = (AlexNet_U_Shape(0, 1, class_num), AlexNet_U_Shape(8, -1, class_num))
+                client_nets[net_i] = net
+        elif model_type == 'VGG16':
+            intermediate_part = VGG16_CIFAR10_U_Shape(1, 8, class_num)
+            for net_i in range(worker_num):
+                net = (VGG16_CIFAR10_U_Shape(0, 1, class_num), VGG16_CIFAR10_U_Shape(8, -1, class_num))
+                client_nets[net_i] = net
         if num_servers == 1:
             return client_nets, intermediate_part
         else:
@@ -120,6 +132,113 @@ class AlexNet_U_Shape(nn.Module):
             nn.Dropout(),
             nn.Linear(4096, 4096),
             nn.ReLU(inplace=True),
+            nn.Linear(4096, class_num),
+        ]
+
+        self.all_layers = self.conv_layers + self.fc_layers
+        self.model_parts = nn.ModuleList()
+        self._initialize_layers()
+
+    def _initialize_layers(self):
+        if self.first_cut == -1:
+            self.first_cut = 0
+        if self.last_cut == -1:
+            self.last_cut = len(self.all_layers)
+
+        for i in range(self.first_cut, self.last_cut):
+            self.model_parts.append(self.all_layers[i])
+
+    def forward(self, x):
+        if self.first_cut > len(self.conv_layers):
+            x = x.view(x.size(0), -1)
+        
+        for layer in self.model_parts:
+            if isinstance(layer, nn.Sequential):
+                for sublayer in layer:
+                    if isinstance(sublayer, nn.Linear):
+                        if x.dim() > 2:
+                            x = x.view(x.size(0), -1)
+                    x = sublayer(x)
+            else:
+                if isinstance(layer, nn.Linear) and x.dim() > 2:
+                    x = x.view(x.size(0), -1)
+                x = layer(x)
+                
+        if self.last_cut == len(self.all_layers):
+            x = F.log_softmax(x, dim=1)
+        return x
+    
+class VGG16_CIFAR10_U_Shape(nn.Module):
+    def __init__(self, first_cut=-1, last_cut=-1, class_num=10):
+        super(VGG16_CIFAR10_U_Shape, self).__init__()
+        self.first_cut = first_cut
+        self.last_cut = last_cut
+        self.class_num = class_num
+
+        self.conv_layers = [
+            nn.Sequential(
+                nn.Conv2d(3, 64, kernel_size=3, padding=1),
+                nn.BatchNorm2d(64),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(64, 64, kernel_size=3, padding=1),
+                nn.BatchNorm2d(64),
+                nn.ReLU(inplace=True),
+                nn.MaxPool2d(2, 2),
+            ),
+            nn.Sequential(
+                nn.Conv2d(64, 128, kernel_size=3, padding=1),
+                nn.BatchNorm2d(128),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(128, 128, kernel_size=3, padding=1),
+                nn.BatchNorm2d(128),
+                nn.ReLU(inplace=True),
+                nn.MaxPool2d(2, 2),
+            ),
+            nn.Sequential(
+                nn.Conv2d(128, 256, kernel_size=3, padding=1),
+                nn.BatchNorm2d(256),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(256, 256, kernel_size=3, padding=1),
+                nn.BatchNorm2d(256),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(256, 256, kernel_size=3, padding=1),
+                nn.BatchNorm2d(256),
+                nn.ReLU(inplace=True),
+                nn.MaxPool2d(2, 2),
+            ),
+            nn.Sequential(
+                nn.Conv2d(256, 512, kernel_size=3, padding=1),
+                nn.BatchNorm2d(512),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(512, 512, kernel_size=3, padding=1),
+                nn.BatchNorm2d(512),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(512, 512, kernel_size=3, padding=1),
+                nn.BatchNorm2d(512),
+                nn.ReLU(inplace=True),
+                nn.MaxPool2d(2, 2),
+            ),
+            nn.Sequential(
+                nn.Conv2d(512, 512, kernel_size=3, padding=1),
+                nn.BatchNorm2d(512),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(512, 512, kernel_size=3, padding=1),
+                nn.BatchNorm2d(512),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(512, 512, kernel_size=3, padding=1),
+                nn.BatchNorm2d(512),
+                nn.ReLU(inplace=True),
+                nn.MaxPool2d(2, 2),
+            )
+        ]
+
+        self.fc_layers = [
+            nn.Linear(512, 4096),
+            nn.ReLU(inplace=True),
+            nn.Dropout(),
+            nn.Linear(4096, 4096),
+            nn.ReLU(inplace=True),
+            nn.Dropout(),
             nn.Linear(4096, class_num),
         ]
 

@@ -24,7 +24,7 @@ from torch.utils.data import Dataset
 #init parameters
 parser = argparse.ArgumentParser(description='Distributed Client')
 parser.add_argument('--dataset_type', type=str, default='CIFAR10')
-parser.add_argument('--model_type', type=str, default='AlexNet')
+parser.add_argument('--model_type', type=str, default='AlexNet', choices=['AlexNet', 'VGG16']) # remove choices part if you wish to work with other datasets
 parser.add_argument('--initial_workers', type=int, default=10)
 parser.add_argument('--chosen_worker_num', type=int, default=10)
 parser.add_argument('--batch_size', type=int, default=10) 
@@ -33,7 +33,7 @@ parser.add_argument('--client_lr', type=float, default=0.1)
 parser.add_argument('--server_lr', type=float, default=0.1)
 parser.add_argument('--decay_rate', type=float, default=0.993)
 parser.add_argument('--min_lr', type=float, default=0.005)
-parser.add_argument('--epoch', type=int, default=10)
+parser.add_argument('--epoch', type=int, default=10) # 100 for running slurm jobs
 parser.add_argument('--momentum', type=float, default=-1)
 parser.add_argument('--weight_decay', type=float, default=0.0)
 parser.add_argument('--data_path', type=str, default='./data')
@@ -49,11 +49,28 @@ parser.add_argument('--use_flower', action='store_true', help='Use Flower for da
 args = parser.parse_args()
 device = torch.device(args.device)
 
-def select_clients(strategy, initial_workers, chosen_worker_num):
-    if strategy == 'first':
-        return list(range(chosen_worker_num))
-    elif strategy == 'random':
-        return random.sample(range(initial_workers), chosen_worker_num)
+def filter_and_select_clients(client_train_loader, initial_workers, batch_size, chosen_worker_num, selection_strategy, use_flower=False):
+    eligible_clients = []
+    for worker_idx in range(initial_workers):
+        if len(client_train_loader[worker_idx].loader.dataset) >= batch_size:
+            eligible_clients.append(worker_idx)
+    
+    if len(eligible_clients) < chosen_worker_num:
+        print(f"Warning: Only {len(eligible_clients)} clients have sufficient data. Adjusting chosen_worker_num.")
+        chosen_worker_num = len(eligible_clients)
+    
+    if selection_strategy == 'first':
+        selected_clients = eligible_clients[:chosen_worker_num]
+    elif selection_strategy == 'random':
+        selected_clients = random.sample(eligible_clients, chosen_worker_num)
+    
+    return selected_clients
+
+# def select_clients(strategy, initial_workers, chosen_worker_num):
+#     if strategy == 'first':
+#         return list(range(chosen_worker_num))
+#     elif strategy == 'random':
+#         return random.sample(range(initial_workers), chosen_worker_num)
 
 def non_iid_partition(ratio, train_class_num, initial_workers):
     partition_sizes = np.ones((train_class_num, initial_workers)) * ((1 - ratio) / (initial_workers-1))
@@ -118,8 +135,6 @@ def partition_data(dataset_type, data_pattern, initial_workers=10):
             partition_sizes = dirichlet_partition(dataset_type, alpha, initial_workers, train_class_num)
     print(partition_sizes)
     train_data_partition = data_utils.LabelwisePartitioner(train_dataset, partition_sizes=partition_sizes, class_num=train_class_num, labels=labels)
-    # Add this line to create the plot
-    #data_utils.plot_data_distribution(train_dataset, train_data_partition, dataset_type, data_pattern, initial_workers)
     return train_dataset, test_dataset, train_data_partition, labels
 
 def apply_transforms_train_cifar10(item):
@@ -230,6 +245,7 @@ def partition_data_non_iid_strict(dataset_type, data_pattern, initial_workers=10
 
 def print_worker_data_counts(train_data_partition, initial_workers, dataset):
     total_count = 0
+    eligible_count = 0
     for worker_idx in range(initial_workers):
         if args.use_flower:
             partition = dataset.load_partition(worker_idx)
@@ -238,8 +254,11 @@ def print_worker_data_counts(train_data_partition, initial_workers, dataset):
             worker_data_count = len(train_data_partition.use(worker_idx))
         print(f"Worker {worker_idx} has {worker_data_count} training samples")
         total_count += worker_data_count
+        if worker_data_count >= args.batch_size:
+            eligible_count += 1
     
     print(f"Total samples across all workers: {total_count}")
+    print(f"Number of eligible workers (with at least {args.batch_size} samples): {eligible_count}")
     return total_count
 
 def main():
@@ -276,10 +295,10 @@ def main():
 
     if args.use_flower:
         fds, train_dataset, test_dataset, train_data_partition, labels = partition_data_with_flower(args.dataset_type, args.data_pattern, initial_workers)
-        data_utils.plot_data_distribution(fds, None, args.dataset_type, args.data_pattern, initial_workers, use_flower=True)
+        #data_utils.plot_data_distribution(fds, None, args.dataset_type, args.data_pattern, initial_workers, use_flower=True)
     else:
         train_dataset, test_dataset, train_data_partition, labels = partition_data(args.dataset_type, args.data_pattern, initial_workers)
-        data_utils.plot_data_distribution(train_dataset, train_data_partition, args.dataset_type, args.data_pattern, initial_workers, use_flower=False)
+        #data_utils.plot_data_distribution(train_dataset, train_data_partition, args.dataset_type, args.data_pattern, initial_workers, use_flower=False)
     if args.use_flower:
         if args.dataset_type == "CIFAR10":
             train_transform = apply_transforms_train_cifar10
@@ -324,9 +343,9 @@ def main():
                 client_train_loader.append(data_utils.create_dataloaders(train_dataset, batch_size=args.batch_size, selected_idxs=train_data_partition.use(worker_idx), pin_memory=False, drop_last=True))
     
     # Client selection
-    selected_clients = select_clients(args.selection_strategy, initial_workers, chosen_worker_num)
+    selected_clients = filter_and_select_clients(client_train_loader, initial_workers, args.batch_size, chosen_worker_num, args.selection_strategy, args.use_flower)
     print(f"Selected clients for training: {selected_clients}")
-    
+
     epoch_client_lr = args.client_lr
     epoch_server_lr = args.server_lr
     

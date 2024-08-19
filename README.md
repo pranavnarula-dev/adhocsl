@@ -37,7 +37,7 @@ This command will install all the required packages, ensuring that the environme
 ### Clone the repository:
 
 ```bash
-git clone https://github.com/yourusername/AdhocSL.git
+git clone https://github.com/pranavnarula-dev/AdhocSL.git
 cd AdhocSL
 ```
 
@@ -48,7 +48,7 @@ pip install -r requirements.txt
 ### Run experiments:
 Execute the main script with appropriate arguments to run the AdhocSL algorithm:
 ```bash
-python experiment.py --two_split --data_pattern 8 --use_flower --model AlexNet --dataset CIFAR10
+python experiment.py --two_splits --data_pattern 8 --use_flower --model AlexNet --dataset CIFAR10
 ```
 Replace AlexNet and CIFAR10 with VGG16 or other supported models and datasets as needed.
 

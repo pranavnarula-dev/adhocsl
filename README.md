@@ -58,7 +58,7 @@ Replace AlexNet and CIFAR10 with VGG16 or other supported models and datasets as
 Here's a description of all the command line parameters available in the `experiment.py` script:
 
 * `--dataset_type`: Type of dataset to use (default: 'CIFAR10')
-* `--model_type`: Type of model to use (default: 'AlexNet', choices: ['AlexNet', 'VGG16'])
+* `--model_type`: Type of model to use (default: 'AlexNet', choices: ['AlexNet', 'VGG16'] for CIFAR10)
 * `--initial_workers`: Number of initial workers (default: 10)
 * `--chosen_worker_num`: Number of workers chosen for each round (default: 10)
 * `--batch_size`: Batch size for training (default: 10)

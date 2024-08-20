@@ -372,31 +372,6 @@ class SubsetSC(): #SPEECHCOMMANDS
             else:
                 self._walker = [w for w in self._walker if w not in excludes]
 
-
-# def collate_fn(batch, labels):
-
-#     # A data tuple has the form:
-#     # waveform, sample_rate, label, speaker_id, utterance_number
-
-#     tensors, targets = [], []
-
-#     # Gather in lists, and encode labels as indices
-#     for waveform, _, label, *_ in batch:
-#         tensors += [waveform]
-#         targets += [torch.tensor(labels.index(label))]
-
-#     def pad_sequence(batch):
-#         # Make all tensor in a batch the same length by padding with zeros
-#         batch = [item.t() for item in batch]
-#         batch = torch.nn.utils.rnn.pad_sequence(batch, batch_first=True, padding_value=0.)
-#         return batch.permute(0, 2, 1)
-
-#     # Group the list of tensors into a batched tensor
-#     tensors = pad_sequence(tensors)
-#     targets = torch.stack(targets)
-
-#     return tensors, targets
-
 def collate_fn(batch, labels):
     tensors, targets = [], []
 
@@ -410,80 +385,6 @@ def collate_fn(batch, labels):
     return tensors, targets
 
 
-# def plot_data_distribution(dataset, train_data_partition, dataset_type, data_pattern, initial_workers, use_flower=False):
-#     import matplotlib.pyplot as plt
-#     import numpy as np
-#     import pandas as pd
-
-#     # Prepare data
-#     class_distribution = []
-#     total_samples = 0
-#     max_samples_per_client = 0
-
-#     for worker_idx in range(initial_workers):
-#         if use_flower:
-#             partition = dataset.load_partition(worker_idx)
-#             labels = [sample['label'] for sample in partition]
-#             worker_samples = len(partition)
-#         else:
-#             worker_data = train_data_partition.use(worker_idx)
-#             if isinstance(worker_data, list):
-#                 labels = [dataset.targets[idx] for idx in worker_data]
-#             else:
-#                 labels = [sample[1] for sample in worker_data]
-#             worker_samples = len(worker_data)
-        
-#         total_samples += worker_samples
-#         unique, counts = np.unique(labels, return_counts=True)
-#         max_samples_per_client = max(max_samples_per_client, worker_samples)
-
-#         classes = range(10) if dataset_type == 'CIFAR10' else range(len(dataset.classes))
-#         for class_idx in classes:
-#             count = counts[np.where(unique == class_idx)[0][0]] if class_idx in unique else 0
-#             class_distribution.append({
-#                 'Client': f'Client {worker_idx}',
-#                 'Class': f'Class {class_idx}',
-#                 'Count': count,
-#                 'Total': worker_samples
-#             })
-
-#     # Create DataFrame
-#     df = pd.DataFrame(class_distribution)
-
-#     # Create plot
-#     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 12), gridspec_kw={'height_ratios': [3, 1]})
-#     fig.suptitle(f'{dataset_type} Distribution (Pattern {data_pattern})', fontsize=16)
-
-#     # Stacked bar plot
-#     df_pivot = df.pivot(index='Client', columns='Class', values='Count')
-#     df_pivot = df_pivot.reindex(sorted(df_pivot.index, key=lambda x: int(x.split()[-1])))
-#     df_pivot.plot(kind='bar', stacked=True, ax=ax1)
-#     ax1.set_ylabel('Number of Samples')
-#     ax1.set_title('Class Distribution per Client')
-#     ax1.legend(title='Class', bbox_to_anchor=(1.05, 1), loc='upper left')
-
-#     # Total samples bar plot
-#     client_totals = df.groupby('Client')['Count'].sum().sort_index()
-#     client_totals.plot(kind='bar', ax=ax2, color='skyblue')
-#     ax2.set_ylabel('Total Samples')
-#     ax2.set_title('Total Samples per Client')
-    
-#     # Percentage text on total samples bars
-#     for i, v in enumerate(client_totals):
-#         ax2.text(i, v, f'{v/total_samples:.2%}', ha='center', va='bottom')
-
-#     plt.tight_layout()
-#     plt.savefig(f'{dataset_type}_distribution_pattern_{data_pattern}_workers_{initial_workers}.png', dpi=300, bbox_inches='tight')
-#     plt.close()
-
-#     # Print detailed distribution information
-#     print(f"\nDetailed class distribution for {dataset_type} (Pattern {data_pattern}):")
-#     for worker_idx in range(initial_workers):
-#         worker_dist = df[df['Client'] == f'Client {worker_idx}']
-#         worker_samples = worker_dist['Total'].iloc[0]
-#         print(f"\nClient {worker_idx}: {worker_samples} samples ({worker_samples/total_samples:.2%} of total data)")
-#         for _, row in worker_dist.iterrows():
-#             print(f"  {row['Class']}: {row['Count']} ({row['Count']/worker_samples:.2%})")
 def plot_data_distribution(dataset, train_data_partition, dataset_type, data_pattern, initial_workers, use_flower=False):
     # Prepare data
     class_distribution = []

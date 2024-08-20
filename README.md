@@ -79,7 +79,7 @@ Here's a description of all the command line parameters available in the `experi
 * `--num_servers`: Number of intermediate servers (default: 1, choices: [1, 2, 3, 4])
 * `--selection_strategy`: Strategy for client selection (default: 'first', choices: ['first', 'random'])
 * `--use_flower`: Use Flower for data partitioning (action: store_true)
-* 
+
 ## Extending to Other Datasets and Models
 
 The current setup is optimized for the CIFAR-10 dataset with AlexNet and VGG-16 models. To extend this to other datasets and models:

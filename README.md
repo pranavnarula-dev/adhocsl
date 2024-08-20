@@ -2,7 +2,8 @@
 
 This repository contains the implementation of the AdhocSL algorithm, an extension of MergeSFL. AdhocSL enables a U-shaped configuration in which the first and last parts of the model reside on clients, while the intermediate part resides on the server. This setup is particularly effective for split learning scenarios, where data parallelism is achieved with a maximum of 4 helpers. During training, gradients from each client are distributed among the helpers, optimizing the learning process.
 
-The current implementation is tailored for the CIFAR-10 dataset and supports AlexNet and VGG-16 models. However, it is flexible and can be extended to other datasets and models, as inherited from the [MergeSFL implementation](https://github.com/ymliao98/MergeSFL).
+
+The current implementation is primarily tailored for the CIFAR-10 dataset and supports AlexNet and VGG-16 models. Additionally, it has been extended to work with the UCI-HAR (Human Activity Recognition) dataset using a CNN-HAR model. This demonstrates the flexibility of the AdhocSL approach across different types of data and model architectures. The implementation is designed to be extensible to other datasets and models, as inherited from the [MergeSFL implementation](https://github.com/ymliao98/MergeSFL).
 
 ## Table of Contents
 1. [File Descriptions](#file-descriptions)
@@ -52,6 +53,33 @@ python experiment.py --two_splits --data_pattern 8 --use_flower --model AlexNet 
 ```
 Replace AlexNet and CIFAR10 with VGG16 or other supported models and datasets as needed.
 
+## Command Line Arguments
+
+Here's a description of all the command line parameters available in the `experiment.py` script:
+
+* `--dataset_type`: Type of dataset to use (default: 'CIFAR10')
+* `--model_type`: Type of model to use (default: 'AlexNet', choices: ['AlexNet', 'VGG16'])
+* `--initial_workers`: Number of initial workers (default: 10)
+* `--chosen_worker_num`: Number of workers chosen for each round (default: 10)
+* `--batch_size`: Batch size for training (default: 10)
+* `--data_pattern`: Data distribution pattern (default: 0)
+* `--client_lr`: Learning rate for client models (default: 0.1)
+* `--server_lr`: Learning rate for server model (default: 0.1)
+* `--decay_rate`: Learning rate decay rate (default: 0.993)
+* `--min_lr`: Minimum learning rate (default: 0.005)
+* `--epoch`: Number of training epochs (default: 10)
+* `--momentum`: Momentum for SGD optimizer (default: -1, disabled if < 0)
+* `--weight_decay`: Weight decay for optimizer (default: 0.0)
+* `--data_path`: Path to dataset (default: './data')
+* `--device`: Device to run the program on (default: 'cpu')
+* `--expname`: Name of the experiment (default: 'MergeSFL')
+* `--two_splits`: Enable U-shaped configuration (action: store_true)
+* `--type_noniid`: Type of non-IID data distribution (default: 'default')
+* `--level`: Level parameter for non-IID distribution (default: 10)
+* `--num_servers`: Number of intermediate servers (default: 1, choices: [1, 2, 3, 4])
+* `--selection_strategy`: Strategy for client selection (default: 'first', choices: ['first', 'random'])
+* `--use_flower`: Use Flower for data partitioning (action: store_true)
+* 
 ## Extending to Other Datasets and Models
 
 The current setup is optimized for the CIFAR-10 dataset with AlexNet and VGG-16 models. To extend this to other datasets and models:
